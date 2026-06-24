@@ -2,6 +2,7 @@ import { useState } from "react";
 
 const ASSIGNED_BY = ["Lara", "Zin Zin", "Aisyah", "Toni", "Swapna", "Olive"];
 const CATEGORIES = ["Active", "Pending Feedback", "Waiting Internal", "Waiting for Client"];
+const MANAGER_PASSWORD = "Vdw@2026";
 
 const todayStr = () => new Date().toLocaleDateString("en-GB");
 const nowTime = () => new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -42,6 +43,9 @@ export default function App() {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
   const [filterDate, setFilterDate] = useState(todayStr());
+  const [managerUnlocked, setManagerUnlocked] = useState(false);
+  const [pwInput, setPwInput] = useState("");
+  const [pwError, setPwError] = useState("");
 
   const addTask = () => setTasks(t => [...t, emptyTask()]);
   const removeTask = i => setTasks(t => t.filter((_, idx) => idx !== i));
@@ -65,6 +69,18 @@ export default function App() {
     setSaving(false);
   };
 
+  const checkPassword = () => {
+    if (pwInput === MANAGER_PASSWORD) {
+      setManagerUnlocked(true);
+      setPwError("");
+      setPwInput("");
+      setView("manager");
+      loadEntries();
+    } else {
+      setPwError("Incorrect password.");
+    }
+  };
+
   const loadEntries = async () => {
     setLoading(true); setError("");
     try {
@@ -85,8 +101,33 @@ export default function App() {
         <div style={{ color:"#666", marginBottom:32 }}>Logging your day or checking the team dashboard?</div>
         <div style={{ display:"flex", gap:16, justifyContent:"center", flexWrap:"wrap" }}>
           <button style={{ ...s.btn(), padding:"14px 32px", fontSize:16 }} onClick={() => setView("staff")}>Log My Day</button>
-          <button style={{ ...s.btn("#2e7d52"), padding:"14px 32px", fontSize:16 }} onClick={() => { setView("manager"); loadEntries(); }}>Manager View</button>
+          <button style={{ ...s.btn("#2e7d52"), padding:"14px 32px", fontSize:16 }} onClick={() => setView("managerLogin")}>Manager View</button>
         </div>
+      </div>
+      <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
+    </div>
+  );
+
+  if (view === "managerLogin") return (
+    <div style={s.wrap}>
+      <div style={s.header}>
+        <span style={s.logo}>Manager Dashboard</span>
+        <button style={s.pill} onClick={() => { setView("choose"); setPwInput(""); setPwError(""); }}>Back</button>
+      </div>
+      <div style={{ ...s.card, maxWidth:420, textAlign:"center", paddingTop:40, paddingBottom:40 }}>
+        <div style={{ fontSize:18, fontWeight:700, color:"#1a3a5c", marginBottom:8 }}>Manager Access</div>
+        <div style={{ color:"#666", marginBottom:20, fontSize:13 }}>Enter the password to view the dashboard.</div>
+        {pwError && <div style={{ background:"#fff0f0", color:"#c0392b", borderRadius:7, padding:"9px 14px", marginBottom:14, fontSize:13 }}>{pwError}</div>}
+        <input
+          style={{ ...s.input, marginBottom:16, textAlign:"center" }}
+          type="password"
+          value={pwInput}
+          onChange={e => setPwInput(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") checkPassword(); }}
+          placeholder="Password"
+          autoFocus
+        />
+        <button style={{ ...s.btn("#2e7d52"), width:"100%", padding:"12px" }} onClick={checkPassword}>Unlock</button>
       </div>
       <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
     </div>
@@ -189,7 +230,7 @@ export default function App() {
     <div style={s.wrap}>
       <div style={s.header}>
         <span style={s.logo}>Manager Dashboard</span>
-        <button style={s.pill} onClick={() => setView("choose")}>Back</button>
+        <button style={s.pill} onClick={() => { setView("choose"); setManagerUnlocked(false); }}>Back</button>
       </div>
       <div style={s.card}>
         <div style={{ display:"flex", gap:12, alignItems:"flex-end", marginBottom:20, flexWrap:"wrap" }}>
@@ -240,4 +281,3 @@ export default function App() {
     </div>
   );
 }
-
