@@ -1,4 +1,4 @@
-useState } from "react";
+import { useState } from "react";
 
 const ASSIGNED_BY = ["Lara", "Zin Zin", "Aisyah", "Toni", "Swapna", "Olive"];
 const CATEGORIES = ["Active", "Pending Feedback", "Waiting Internal", "Waiting for Client"];
