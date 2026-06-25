@@ -1,5 +1,4 @@
-//version with password
-import { useState } from "react";
+useState } from "react";
 
 const ASSIGNED_BY = ["Lara", "Zin Zin", "Aisyah", "Toni", "Swapna", "Olive"];
 const CATEGORIES = ["Active", "Pending Feedback", "Waiting Internal", "Waiting for Client"];
@@ -36,11 +35,18 @@ export default function App() {
   const [name, setName] = useState("");
   const [date] = useState(todayStr());
   const [timeIn, setTimeIn] = useState("");
-  const [timeOut, setTimeOut] = useState("");
   const [tasks, setTasks] = useState([emptyTask()]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const [eodName, setEodName] = useState("");
+  const [eodFound, setEodFound] = useState(null);
+  const [eodTimeOut, setEodTimeOut] = useState("");
+  const [eodTasks, setEodTasks] = useState([]);
+  const [eodSaving, setEodSaving] = useState(false);
+  const [eodSaved, setEodSaved] = useState(false);
+  const [eodError, setEodError] = useState("");
+  const [eodSearching, setEodSearching] = useState(false);
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
   const [filterDate, setFilterDate] = useState(todayStr());
@@ -51,24 +57,7 @@ export default function App() {
   const addTask = () => setTasks(t => [...t, emptyTask()]);
   const removeTask = i => setTasks(t => t.filter((_, idx) => idx !== i));
   const updateTask = (i, f, v) => setTasks(t => t.map((r, idx) => idx === i ? { ...r, [f]: v } : r));
-
-  const handleSubmit = async () => {
-    if (!name.trim()) { setError("Please enter your name."); return; }
-    if (!timeIn) { setError("Please log your time in."); return; }
-    setError(""); setSaving(true);
-    try {
-      const res = await fetch("/api/submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), date, timeIn, timeOut, tasks })
-      });
-      if (!res.ok) throw new Error();
-      setSaved(true);
-    } catch {
-      setError("Could not save. Please try again.");
-    }
-    setSaving(false);
-  };
+  const updateEodTask = (i, f, v) => setEodTasks(t => t.map((r, idx) => idx === i ? { ...r, [f]: v } : r));
 
   const checkPassword = () => {
     if (pwInput === MANAGER_PASSWORD) {
@@ -82,8 +71,63 @@ export default function App() {
     }
   };
 
+  const handleMorningSubmit = async () => {
+    if (!name.trim()) { setError("Please enter your name."); return; }
+    if (!timeIn) { setError("Please log your time in."); return; }
+    setError(""); setSaving(true);
+    try {
+      const res = await fetch("/api/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), date, timeIn, timeOut: "", tasks })
+      });
+      if (!res.ok) throw new Error();
+      setSaved(true);
+    } catch {
+      setError("Could not save. Please try again.");
+    }
+    setSaving(false);
+  };
+
+  const handleEodLookup = async () => {
+    if (!eodName.trim()) { setEodError("Please enter your name."); return; }
+    setEodError(""); setEodSearching(true); setEodFound(null);
+    try {
+      const res = await fetch(`/api/entries?date=${encodeURIComponent(todayStr())}`);
+      const data = await res.json();
+      const match = (data.entries || []).find(e => e.name.toLowerCase() === eodName.trim().toLowerCase());
+      if (match) {
+        setEodFound(match);
+        setEodTasks(match.tasks.map(t => ({ ...t })));
+        setEodTimeOut(match.timeOut || "");
+      } else {
+        setEodError("No morning log found for your name today. Please check your name or submit a morning log first.");
+      }
+    } catch {
+      setEodError("Could not find your log. Please try again.");
+    }
+    setEodSearching(false);
+  };
+
+  const handleEodSubmit = async () => {
+    if (!eodTimeOut) { setEodError("Please enter your time out."); return; }
+    setEodError(""); setEodSaving(true);
+    try {
+      const res = await fetch("/api/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: eodFound.name, date: todayStr(), timeOut: eodTimeOut, tasks: eodTasks })
+      });
+      if (!res.ok) throw new Error();
+      setEodSaved(true);
+    } catch {
+      setEodError("Could not save. Please try again.");
+    }
+    setEodSaving(false);
+  };
+
   const loadEntries = async () => {
-    setLoading(true); setError("");
+    setLoading(true);
     try {
       const res = await fetch(`/api/entries?date=${encodeURIComponent(filterDate)}`);
       const data = await res.json();
@@ -99,57 +143,37 @@ export default function App() {
       <div style={s.header}><span style={s.logo}>Team Daily Log</span></div>
       <div style={{ ...s.card, textAlign:"center", paddingTop:44, paddingBottom:44 }}>
         <div style={{ fontSize:22, fontWeight:700, color:"#1a3a5c", marginBottom:8 }}>Welcome</div>
-        <div style={{ color:"#666", marginBottom:32 }}>Logging your day or checking the team dashboard?</div>
-        <div style={{ display:"flex", gap:16, justifyContent:"center", flexWrap:"wrap" }}>
-          <button style={{ ...s.btn(), padding:"14px 32px", fontSize:16 }} onClick={() => setView("staff")}>Log My Day</button>
-          <button style={{ ...s.btn("#2e7d52"), padding:"14px 32px", fontSize:16 }} onClick={() => setView("managerLogin")}>Manager View</button>
+        <div style={{ color:"#666", marginBottom:32 }}>What would you like to do?</div>
+        <div style={{ display:"flex", gap:14, justifyContent:"center", flexWrap:"wrap" }}>
+          <button style={{ ...s.btn(), padding:"14px 24px", fontSize:15 }} onClick={() => setView("morning")}>Morning Log</button>
+          <button style={{ ...s.btn("#e67e22"), padding:"14px 24px", fontSize:15 }} onClick={() => setView("eod")}>End of Day Update</button>
+          <button style={{ ...s.btn("#2e7d52"), padding:"14px 24px", fontSize:15 }} onClick={() => setView("managerLogin")}>Manager View</button>
+        </div>
+        <div style={{ marginTop:24, fontSize:12, color:"#aaa" }}>
+          Morning Log: submit at start of day | End of Day: update time out and task progress
         </div>
       </div>
       <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
     </div>
   );
 
-  if (view === "managerLogin") return (
+  if (view === "morning") return (
     <div style={s.wrap}>
       <div style={s.header}>
-        <span style={s.logo}>Manager Dashboard</span>
-        <button style={s.pill} onClick={() => { setView("choose"); setPwInput(""); setPwError(""); }}>Back</button>
-      </div>
-      <div style={{ ...s.card, maxWidth:420, textAlign:"center", paddingTop:40, paddingBottom:40 }}>
-        <div style={{ fontSize:18, fontWeight:700, color:"#1a3a5c", marginBottom:8 }}>Manager Access</div>
-        <div style={{ color:"#666", marginBottom:20, fontSize:13 }}>Enter the password to view the dashboard.</div>
-        {pwError && <div style={{ background:"#fff0f0", color:"#c0392b", borderRadius:7, padding:"9px 14px", marginBottom:14, fontSize:13 }}>{pwError}</div>}
-        <input
-          style={{ ...s.input, marginBottom:16, textAlign:"center" }}
-          type="password"
-          value={pwInput}
-          onChange={e => setPwInput(e.target.value)}
-          onKeyDown={e => { if (e.key === "Enter") checkPassword(); }}
-          placeholder="Password"
-          autoFocus
-        />
-        <button style={{ ...s.btn("#2e7d52"), width:"100%", padding:"12px" }} onClick={checkPassword}>Unlock</button>
-      </div>
-      <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
-    </div>
-  );
-
-  if (view === "staff") return (
-    <div style={s.wrap}>
-      <div style={s.header}>
-        <span style={s.logo}>Log My Day</span>
+        <span style={s.logo}>Morning Log</span>
         <button style={s.pill} onClick={() => setView("choose")}>Back</button>
       </div>
       {saved ? (
         <div style={{ ...s.card, textAlign:"center", padding:"48px 24px" }}>
           <div style={{ fontSize:48, marginBottom:12 }}>Done!</div>
-          <div style={{ fontSize:20, fontWeight:700, color:"#1a7a4a" }}>Submitted!</div>
-          <div style={{ color:"#666", marginTop:8 }}>Your log for {date} is saved.</div>
-          <button style={{ ...s.btn(), marginTop:24 }} onClick={() => { setSaved(false); setName(""); setTimeIn(""); setTimeOut(""); setTasks([emptyTask()]); }}>Submit Another</button>
+          <div style={{ fontSize:20, fontWeight:700, color:"#1a7a4a" }}>Morning log submitted!</div>
+          <div style={{ color:"#666", marginTop:8 }}>Come back at end of day to update your time out and task progress.</div>
+          <button style={{ ...s.btn(), marginTop:24 }} onClick={() => { setSaved(false); setName(""); setTimeIn(""); setTasks([emptyTask()]); }}>Submit Another</button>
         </div>
       ) : (
         <div style={s.card}>
-          <div style={{ fontSize:17, fontWeight:700, color:"#1a3a5c", marginBottom:18 }}>Daily Log - {date}</div>
+          <div style={{ fontSize:17, fontWeight:700, color:"#1a3a5c", marginBottom:4 }}>Morning Log - {date}</div>
+          <div style={{ fontSize:12, color:"#aaa", marginBottom:18 }}>Fill this in when you start your day</div>
           {error && <div style={{ background:"#fff0f0", color:"#c0392b", borderRadius:7, padding:"9px 14px", marginBottom:14, fontSize:13 }}>{error}</div>}
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:20 }}>
             <div>
@@ -160,22 +184,15 @@ export default function App() {
               <label style={s.label}>Date</label>
               <input style={{ ...s.input, background:"#f4f6fb" }} value={date} readOnly />
             </div>
-            <div>
+            <div style={{ gridColumn:"1 / -1" }}>
               <label style={s.label}>Time In *</label>
               <div style={{ display:"flex", gap:8 }}>
                 <input style={{ ...s.input, flex:1 }} value={timeIn} onChange={e => setTimeIn(e.target.value)} placeholder="e.g. 09:00" />
                 <button style={s.timebtn} onClick={() => setTimeIn(nowTime())}>Now</button>
               </div>
             </div>
-            <div>
-              <label style={s.label}>Time Out</label>
-              <div style={{ display:"flex", gap:8 }}>
-                <input style={{ ...s.input, flex:1 }} value={timeOut} onChange={e => setTimeOut(e.target.value)} placeholder="Fill at end of day" />
-                <button style={s.timebtn} onClick={() => setTimeOut(nowTime())}>Now</button>
-              </div>
-            </div>
           </div>
-          <div style={{ fontSize:15, fontWeight:700, color:"#1a3a5c", marginBottom:12 }}>Tasks</div>
+          <div style={{ fontSize:15, fontWeight:700, color:"#1a3a5c", marginBottom:12 }}>Tasks for Today</div>
           {tasks.map((t, i) => (
             <div key={i} style={s.taskRow}>
               <div style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
@@ -218,11 +235,106 @@ export default function App() {
             </div>
           ))}
           <button style={{ ...s.btn("#4a90d9"), marginBottom:16, width:"100%" }} onClick={addTask}>+ Add Task</button>
-          <button style={{ ...s.btn(), width:"100%", padding:"12px", fontSize:15 }} onClick={handleSubmit} disabled={saving}>
-            {saving ? "Saving..." : "Submit Daily Log"}
+          <button style={{ ...s.btn(), width:"100%", padding:"12px", fontSize:15 }} onClick={handleMorningSubmit} disabled={saving}>
+            {saving ? "Saving..." : "Submit Morning Log"}
           </button>
         </div>
       )}
+      <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
+    </div>
+  );
+
+  if (view === "eod") return (
+    <div style={s.wrap}>
+      <div style={s.header}>
+        <span style={s.logo}>End of Day Update</span>
+        <button style={s.pill} onClick={() => { setView("choose"); setEodFound(null); setEodName(""); setEodError(""); setEodSaved(false); }}>Back</button>
+      </div>
+      {eodSaved ? (
+        <div style={{ ...s.card, textAlign:"center", padding:"48px 24px" }}>
+          <div style={{ fontSize:48, marginBottom:12 }}>Done!</div>
+          <div style={{ fontSize:20, fontWeight:700, color:"#1a7a4a" }}>End of day updated!</div>
+          <div style={{ color:"#666", marginTop:8 }}>Your time out and task progress have been saved. See you tomorrow!</div>
+        </div>
+      ) : !eodFound ? (
+        <div style={s.card}>
+          <div style={{ fontSize:17, fontWeight:700, color:"#1a3a5c", marginBottom:4 }}>End of Day Update - {todayStr()}</div>
+          <div style={{ fontSize:12, color:"#aaa", marginBottom:18 }}>We will find your morning log and let you update it</div>
+          {eodError && <div style={{ background:"#fff0f0", color:"#c0392b", borderRadius:7, padding:"9px 14px", marginBottom:14, fontSize:13 }}>{eodError}</div>}
+          <label style={s.label}>Your Name</label>
+          <div style={{ display:"flex", gap:8 }}>
+            <input style={{ ...s.input, flex:1 }} value={eodName} onChange={e => setEodName(e.target.value)} placeholder="Type your name exactly as used this morning" onKeyDown={e => e.key === "Enter" && handleEodLookup()} />
+            <button style={{ ...s.btn(), whiteSpace:"nowrap" }} onClick={handleEodLookup} disabled={eodSearching}>
+              {eodSearching ? "Searching..." : "Find My Log"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={s.card}>
+          <div style={{ fontSize:17, fontWeight:700, color:"#1a3a5c", marginBottom:4 }}>Update Log - {eodFound.name}</div>
+          <div style={{ fontSize:12, color:"#aaa", marginBottom:18 }}>Time in: {eodFound.timeIn} - add your time out and update task progress</div>
+          {eodError && <div style={{ background:"#fff0f0", color:"#c0392b", borderRadius:7, padding:"9px 14px", marginBottom:14, fontSize:13 }}>{eodError}</div>}
+          <div style={{ marginBottom:20 }}>
+            <label style={s.label}>Time Out *</label>
+            <div style={{ display:"flex", gap:8 }}>
+              <input style={{ ...s.input, flex:1 }} value={eodTimeOut} onChange={e => setEodTimeOut(e.target.value)} placeholder="e.g. 18:00" />
+              <button style={s.timebtn} onClick={() => setEodTimeOut(nowTime())}>Now</button>
+            </div>
+          </div>
+          <div style={{ fontSize:15, fontWeight:700, color:"#1a3a5c", marginBottom:12 }}>Update Task Progress</div>
+          {eodTasks.map((t, i) => (
+            <div key={i} style={s.taskRow}>
+              <div style={{ fontWeight:600, fontSize:14, color:"#1a3a5c", marginBottom:10 }}>
+                {t.name || `Task ${i+1}`} <span style={s.badge(t.category)}>{t.category}</span>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+                <div>
+                  <label style={s.label}>Completion %</label>
+                  <input style={s.input} type="number" min="0" max="100" value={t.pct} onChange={e => updateEodTask(i,"pct",e.target.value)} placeholder="0-100" />
+                </div>
+                <div>
+                  <label style={s.label}>Category (update if changed)</label>
+                  <select style={s.select} value={t.category} onChange={e => updateEodTask(i,"category",e.target.value)}>
+                    {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label style={s.label}>End of Day Remarks</label>
+                <input style={s.input} value={t.remarks} onChange={e => updateEodTask(i,"remarks",e.target.value)} placeholder="Progress update, blockers, next steps..." />
+              </div>
+            </div>
+          ))}
+          <button style={{ ...s.btn(), width:"100%", padding:"12px", fontSize:15, marginTop:8 }} onClick={handleEodSubmit} disabled={eodSaving}>
+            {eodSaving ? "Saving..." : "Save End of Day Update"}
+          </button>
+        </div>
+      )}
+      <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
+    </div>
+  );
+
+  if (view === "managerLogin") return (
+    <div style={s.wrap}>
+      <div style={s.header}>
+        <span style={s.logo}>Manager Dashboard</span>
+        <button style={s.pill} onClick={() => { setView("choose"); setPwInput(""); setPwError(""); }}>Back</button>
+      </div>
+      <div style={{ ...s.card, maxWidth:420, textAlign:"center", paddingTop:40, paddingBottom:40 }}>
+        <div style={{ fontSize:18, fontWeight:700, color:"#1a3a5c", marginBottom:8 }}>Manager Access</div>
+        <div style={{ color:"#666", marginBottom:20, fontSize:13 }}>Enter the password to view the dashboard.</div>
+        {pwError && <div style={{ background:"#fff0f0", color:"#c0392b", borderRadius:7, padding:"9px 14px", marginBottom:14, fontSize:13 }}>{pwError}</div>}
+        <input
+          style={{ ...s.input, marginBottom:16, textAlign:"center" }}
+          type="password"
+          value={pwInput}
+          onChange={e => setPwInput(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") checkPassword(); }}
+          placeholder="Password"
+          autoFocus
+        />
+        <button style={{ ...s.btn("#2e7d52"), width:"100%", padding:"12px" }} onClick={checkPassword}>Unlock</button>
+      </div>
       <style>{"@keyframes spin{to{transform:rotate(360deg)}}"}</style>
     </div>
   );
@@ -240,6 +352,7 @@ export default function App() {
             <input style={{ ...s.input, width:160 }} value={filterDate} onChange={e => setFilterDate(e.target.value)} />
           </div>
           <button style={s.btn()} onClick={loadEntries}>{loading ? "Loading..." : "Load"}</button>
+          <a href="https://docs.google.com/spreadsheets/d/1OsR0vTeC0pozVXuZjNY_2DJ8Z-wE9xs6XS1X2c3nDjU" target="_blank" rel="noreferrer" style={{ ...s.btn("#34a853"), textDecoration:"none", display:"inline-flex", alignItems:"center" }}>Open Sheet</a>
         </div>
         {error && <div style={{ background:"#fff0f0", color:"#c0392b", borderRadius:7, padding:"9px 14px", marginBottom:14, fontSize:13 }}>{error}</div>}
         {!loading && entries.length === 0 && <div style={{ color:"#999", textAlign:"center", padding:"40px 0" }}>No entries found for {filterDate}.</div>}
