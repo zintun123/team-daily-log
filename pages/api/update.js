@@ -15,7 +15,7 @@ async function getSheets() {
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
-  const { name, date, timeOut, tasks } = req.body;
+  const { name, date, timeOut, tasks, newTasks = [] } = req.body;
   try {
     const sheets = await getSheets();
     const resp = await sheets.spreadsheets.values.get({
@@ -49,7 +49,21 @@ export default async function handler(req, res) {
       });
     }
 
-    res.status(200).json({ ok: true, updated: updates.length });
+    if (newTasks.length > 0) {
+      const existingCount = tasks.length;
+      const newRows = newTasks.map((t, i) => [
+        date, name, "", timeOut,
+        existingCount + i + 1, t.name, t.category, t.phase, t.pct, t.assignedBy, t.remarks
+      ]);
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: SHEET_ID,
+        range: "Sheet1!A:K",
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: newRows },
+      });
+    }
+
+    res.status(200).json({ ok: true, updated: updates.length, added: newTasks.length });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Failed to update" });
