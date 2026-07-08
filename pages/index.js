@@ -43,6 +43,7 @@ export default function App() {
   const [eodFound, setEodFound] = useState(null);
   const [eodTimeOut, setEodTimeOut] = useState("");
   const [eodTasks, setEodTasks] = useState([]);
+  const [eodNewTasks, setEodNewTasks] = useState([]);
   const [eodSaving, setEodSaving] = useState(false);
   const [eodSaved, setEodSaved] = useState(false);
   const [eodError, setEodError] = useState("");
@@ -58,6 +59,8 @@ export default function App() {
   const removeTask = i => setTasks(t => t.filter((_, idx) => idx !== i));
   const updateTask = (i, f, v) => setTasks(t => t.map((r, idx) => idx === i ? { ...r, [f]: v } : r));
   const updateEodTask = (i, f, v) => setEodTasks(t => t.map((r, idx) => idx === i ? { ...r, [f]: v } : r));
+  const updateEodNewTask = (i, f, v) => setEodNewTasks(t => t.map((r, idx) => idx === i ? { ...r, [f]: v } : r));
+  const removeEodNewTask = i => setEodNewTasks(t => t.filter((_, idx) => idx !== i));
 
   const checkPassword = () => {
     if (pwInput === MANAGER_PASSWORD) {
@@ -100,6 +103,7 @@ export default function App() {
         setEodFound(match);
         setEodTasks(match.tasks.map(t => ({ ...t })));
         setEodTimeOut(match.timeOut || "");
+        setEodNewTasks([]);
       } else {
         setEodError("No morning log found for your name today. Please check your name or submit a morning log first.");
       }
@@ -116,7 +120,7 @@ export default function App() {
       const res = await fetch("/api/update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: eodFound.name, date: todayStr(), timeOut: eodTimeOut, tasks: eodTasks })
+        body: JSON.stringify({ name: eodFound.name, date: todayStr(), timeOut: eodTimeOut, tasks: eodTasks, newTasks: eodNewTasks })
       });
       if (!res.ok) throw new Error();
       setEodSaved(true);
@@ -248,7 +252,7 @@ export default function App() {
     <div style={s.wrap}>
       <div style={s.header}>
         <span style={s.logo}>End of Day Update</span>
-        <button style={s.pill} onClick={() => { setView("choose"); setEodFound(null); setEodName(""); setEodError(""); setEodSaved(false); }}>Back</button>
+        <button style={s.pill} onClick={() => { setView("choose"); setEodFound(null); setEodName(""); setEodError(""); setEodSaved(false); setEodNewTasks([]); }}>Back</button>
       </div>
       {eodSaved ? (
         <div style={{ ...s.card, textAlign:"center", padding:"48px 24px" }}>
@@ -281,7 +285,8 @@ export default function App() {
               <button style={s.timebtn} onClick={() => setEodTimeOut(nowTime())}>Now</button>
             </div>
           </div>
-          <div style={{ fontSize:15, fontWeight:700, color:"#1a3a5c", marginBottom:12 }}>Update Task Progress</div>
+          <div style={{ fontSize:15, fontWeight:700, color:"#1a3a5c", marginBottom:4 }}>Update Existing Tasks</div>
+          <div style={{ fontSize:12, color:"#aaa", marginBottom:12 }}>Update progress on tasks you logged this morning</div>
           {eodTasks.map((t, i) => (
             <div key={i} style={s.taskRow}>
               <div style={{ fontWeight:600, fontSize:14, color:"#1a3a5c", marginBottom:10 }}>
@@ -305,7 +310,51 @@ export default function App() {
               </div>
             </div>
           ))}
-          <button style={{ ...s.btn(), width:"100%", padding:"12px", fontSize:15, marginTop:8 }} onClick={handleEodSubmit} disabled={eodSaving}>
+          <div style={{ fontSize:15, fontWeight:700, color:"#1a3a5c", marginBottom:4, marginTop:24 }}>Additional Tasks</div>
+          <div style={{ fontSize:12, color:"#aaa", marginBottom:12 }}>Add any new tasks that came up during the day</div>
+          {eodNewTasks.map((t, i) => (
+            <div key={i} style={{ ...s.taskRow, border:"1.5px dashed #c0d0e8" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
+                <span style={{ fontWeight:600, fontSize:13, color:"#888" }}>New Task {i+1}</span>
+                <button onClick={() => removeEodNewTask(i)} style={{ background:"none", border:"none", color:"#c0392b", cursor:"pointer", fontSize:18 }}>x</button>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:10, marginBottom:10 }}>
+                <div>
+                  <label style={s.label}>Task Name</label>
+                  <input style={s.input} value={t.name} onChange={e => updateEodNewTask(i,"name",e.target.value)} placeholder="Type task name" />
+                </div>
+                <div>
+                  <label style={s.label}>Category</label>
+                  <select style={s.select} value={t.category} onChange={e => updateEodNewTask(i,"category",e.target.value)}>
+                    {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:10 }}>
+                <div>
+                  <label style={s.label}>Phase</label>
+                  <input style={s.input} value={t.phase} onChange={e => updateEodNewTask(i,"phase",e.target.value)} placeholder="Alpha, Beta, STB..." />
+                </div>
+                <div>
+                  <label style={s.label}>Completion %</label>
+                  <input style={s.input} type="number" min="0" max="100" value={t.pct} onChange={e => updateEodNewTask(i,"pct",e.target.value)} placeholder="0-100" />
+                </div>
+                <div>
+                  <label style={s.label}>Assigned By</label>
+                  <select style={s.select} value={t.assignedBy} onChange={e => updateEodNewTask(i,"assignedBy",e.target.value)}>
+                    <option value="">Select</option>
+                    {ASSIGNED_BY.map(a => <option key={a}>{a}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label style={s.label}>Remarks</label>
+                <input style={s.input} value={t.remarks} onChange={e => updateEodNewTask(i,"remarks",e.target.value)} placeholder="Notes, progress, blockers..." />
+              </div>
+            </div>
+          ))}
+          <button style={{ ...s.btn("#4a90d9"), marginBottom:16, width:"100%" }} onClick={() => setEodNewTasks(t => [...t, emptyTask()])}>+ Add New Task</button>
+          <button style={{ ...s.btn(), width:"100%", padding:"12px", fontSize:15 }} onClick={handleEodSubmit} disabled={eodSaving}>
             {eodSaving ? "Saving..." : "Save End of Day Update"}
           </button>
         </div>
