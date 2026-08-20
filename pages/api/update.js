@@ -18,52 +18,29 @@ export default async function handler(req, res) {
   const { name, date, timeOut, tasks, newTasks = [] } = req.body;
   try {
     const sheets = await getSheets();
-    const resp = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: "Sheet1!A:K",
-    });
-    const rows = resp.data.values || [];
-    const updates = [];
 
-    rows.forEach((row, idx) => {
-      if (idx === 0) return;
-      if (row[0] === date && row[1] === name) {
-        const taskIdx = parseInt(row[4]) - 1;
-        const updatedTask = tasks[taskIdx];
-        if (updatedTask) {
-          updates.push({ range: `Sheet1!D${idx + 1}`, values: [[timeOut]] });
-          updates.push({ range: `Sheet1!G${idx + 1}`, values: [[updatedTask.category]] });
-          updates.push({ range: `Sheet1!I${idx + 1}`, values: [[updatedTask.pct]] });
-          updates.push({ range: `Sheet1!K${idx + 1}`, values: [[updatedTask.remarks]] });
-        }
-      }
-    });
+    const eodRows = tasks.map((t, i) => [
+      date, name, "", timeOut,
+      i + 1, t.name, t.category, t.phase, t.pct, t.assignedBy, t.remarks, "EOD"
+    ]);
 
-    if (updates.length > 0) {
-      await sheets.spreadsheets.values.batchUpdate({
-        spreadsheetId: SHEET_ID,
-        requestBody: {
-          valueInputOption: "USER_ENTERED",
-          data: updates,
-        },
-      });
-    }
+    const newTaskRows = newTasks.map((t, i) => [
+      date, name, "", timeOut,
+      tasks.length + i + 1, t.name, t.category, t.phase, t.pct, t.assignedBy, t.remarks, "EOD"
+    ]);
 
-    if (newTasks.length > 0) {
-      const existingCount = tasks.length;
-      const newRows = newTasks.map((t, i) => [
-        date, name, "", timeOut,
-        existingCount + i + 1, t.name, t.category, t.phase, t.pct, t.assignedBy, t.remarks
-      ]);
+    const allRows = [...eodRows, ...newTaskRows];
+
+    if (allRows.length > 0) {
       await sheets.spreadsheets.values.append({
         spreadsheetId: SHEET_ID,
-        range: "Sheet1!A:K",
+        range: "Sheet1!A:L",
         valueInputOption: "USER_ENTERED",
-        requestBody: { values: newRows },
+        requestBody: { values: allRows },
       });
     }
 
-    res.status(200).json({ ok: true, updated: updates.length, added: newTasks.length });
+    res.status(200).json({ ok: true, appended: allRows.length });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Failed to update" });
