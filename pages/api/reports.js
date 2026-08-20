@@ -46,7 +46,7 @@ export default async function handler(req, res) {
     const sheets = await getSheets();
     const resp = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: "Sheet1!A:K",
+      range: "Sheet1!A:L",
     });
     const rows = (resp.data.values || []).slice(1);
     const data = rows
@@ -55,15 +55,29 @@ export default async function handler(req, res) {
         date: r[0]||"", name: normName(r[1]||""), timeIn: r[2]||"", timeOut: r[3]||"",
         taskNo: r[4]||"", taskName: r[5]||"", category: r[6]||"Active",
         phase: r[7]||"", pct: Math.min(parseFloat(r[8])||0, 100),
-        assignedBy: r[9]||"", remarks: r[10]||""
+        assignedBy: r[9]||"", remarks: r[10]||"",
+        type: (r[11]||"morning").toLowerCase()
       }))
       .filter(r => r.name && r.name.toLowerCase() !== "this is a test");
+
+    const progressMap = {};
+    for (const r of data) {
+      const key = `${r.date}|${r.name}|${r.taskNo}`;
+      if (!progressMap[key]) progressMap[key] = { ...r, morningPct: null, eodPct: null };
+      if (r.type === "morning") progressMap[key].morningPct = r.pct;
+      else progressMap[key].eodPct = r.pct;
+    }
+    const progress = Object.values(progressMap).map(p => ({
+      ...p,
+      progressMade: p.morningPct !== null && p.eodPct !== null ? p.eodPct - p.morningPct : null,
+      finalPct: p.eodPct !== null ? p.eodPct : p.morningPct
+    }));
 
     const knownStaff = [...new Set(data.map(r => r.name))];
     const dates = [...new Set(data.map(r => r.date))];
     const attendance = {};
     for (const date of dates) {
-      const dayRows = data.filter(r => r.date === date);
+      const dayRows = data.filter(r => r.date === date && r.type === "morning");
       const submitted = {};
       for (const r of dayRows) {
         if (!submitted[r.name]) submitted[r.name] = r.timeIn;
@@ -77,9 +91,9 @@ export default async function handler(req, res) {
       }));
     }
 
-    res.status(200).json({ rows: data, knownStaff, attendance, cutoff: CUTOFF_TIME });
+    res.status(200).json({ rows: data, progress, knownStaff, attendance, cutoff: CUTOFF_TIME });
   } catch (e) {
     console.error(e);
-    res.status(500).json({ error: "Failed to load", rows: [], knownStaff: [], attendance: {} });
+    res.status(500).json({ error: "Failed to load", rows: [], progress: [], knownStaff: [], attendance: {} });
   }
 }
