@@ -20,11 +20,11 @@ export default async function handler(req, res) {
     const sheets = await getSheets();
     const rows = tasks.map((t, i) => [
       date, name, timeIn, timeOut || "",
-      i + 1, t.name, t.category, t.phase, t.pct, t.assignedBy, t.remarks
+      i + 1, t.name, t.category, t.phase, t.pct, t.assignedBy, t.remarks, "morning"
     ]);
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
-      range: "Sheet1!A:K",
+      range: "Sheet1!A:L",
       valueInputOption: "USER_ENTERED",
       requestBody: { values: rows },
     });
