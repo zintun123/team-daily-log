@@ -19,18 +19,53 @@ export default async function handler(req, res) {
     const sheets = await getSheets();
     const resp = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
-      range: "Sheet1!A:K",
+      range: "Sheet1!A:L",
     });
-    const rows = (resp.data.values || []).slice(1);
-    const filtered = rows.filter(r => r[0] === date);
+    const rows = (resp.data.values || []).slice(1).filter(r => r[0] === date);
+
     const map = {};
-    for (const r of filtered) {
-      const [rowDate, name, timeIn, timeOut, taskNo, taskName, category, phase, pct, assignedBy, remarks] = r;
-      if (!map[name]) map[name] = { name, timeIn, timeOut, tasks: [] };
-      if (timeOut) map[name].timeOut = timeOut;
-      if (taskName) map[name].tasks.push({ taskNo, name: taskName, category, phase, pct, assignedBy, remarks });
+    for (const r of rows) {
+      const [rowDate, name, timeIn, timeOut, taskNo, taskName, category, phase, pct, assignedBy, remarks, type] = r;
+      const rowType = (type || "morning").toLowerCase() === "eod" ? "eod" : "morning";
+
+      if (!map[name]) map[name] = { name, timeIn: "", timeOut: "", tasks: {} };
+
+      if (rowType === "morning" && timeIn) map[name].timeIn = timeIn;
+      if (rowType === "eod" && timeOut) map[name].timeOut = timeOut;
+
+      const key = taskNo || taskName;
+      if (!map[name].tasks[key]) {
+        map[name].tasks[key] = {
+          taskNo, name: taskName, category, phase,
+          assignedBy, remarks,
+          morningPct: null, eodPct: null,
+          morningRemarks: null, eodRemarks: null,
+          morningCategory: null, eodCategory: null,
+        };
+      }
+
+      const task = map[name].tasks[key];
+      if (rowType === "morning") {
+        task.morningPct = pct !== "" ? parseFloat(pct) : null;
+        task.morningRemarks = remarks;
+        task.morningCategory = category;
+        task.name = taskName;
+        task.phase = phase;
+        task.assignedBy = assignedBy;
+      } else {
+        task.eodPct = pct !== "" ? parseFloat(pct) : null;
+        task.eodRemarks = remarks;
+        task.eodCategory = category;
+        if (taskName) task.name = taskName;
+      }
     }
-    res.status(200).json({ entries: Object.values(map) });
+
+    const entries = Object.values(map).map(p => ({
+      ...p,
+      tasks: Object.values(p.tasks)
+    }));
+
+    res.status(200).json({ entries });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Failed to load", entries: [] });
