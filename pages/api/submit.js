@@ -15,18 +15,23 @@ async function getSheets() {
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
-  const { name, date, timeIn, timeOut, tasks } = req.body;
+  const { name, date, timeIn, timeOut, tasks, pendingTasks = [] } = req.body;
   try {
     const sheets = await getSheets();
-    const rows = tasks.map((t, i) => [
+    const activeRows = tasks.map((t, i) => [
       date, name, timeIn, timeOut || "",
       i + 1, t.name, t.category, t.phase, t.pct, t.assignedBy, t.remarks, "morning"
     ]);
+    const pendingRows = pendingTasks.map((t, i) => [
+      date, name, timeIn, timeOut || "",
+      i + 1, t.name, t.category, t.phase, t.pct, t.assignedBy, t.remarks, "morning-pending"
+    ]);
+    const allRows = [...activeRows, ...pendingRows];
     await sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
       range: "Sheet1!A:L",
       valueInputOption: "USER_ENTERED",
-      requestBody: { values: rows },
+      requestBody: { values: allRows },
     });
     res.status(200).json({ ok: true });
   } catch (e) {
