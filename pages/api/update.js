@@ -15,7 +15,7 @@ async function getSheets() {
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
-  const { name, date, timeOut, tasks, newTasks = [] } = req.body;
+  const { name, date, timeOut, tasks, newTasks = [], pendingTasks = [] } = req.body;
   try {
     const sheets = await getSheets();
 
@@ -29,7 +29,12 @@ export default async function handler(req, res) {
       tasks.length + i + 1, t.name, t.category, t.phase, t.pct, t.assignedBy, t.remarks, "EOD"
     ]);
 
-    const allRows = [...eodRows, ...newTaskRows];
+    const pendingEodRows = pendingTasks.map((t, i) => [
+      date, name, "", timeOut,
+      i + 1, t.name, t.category, t.phase, t.pct, t.assignedBy, t.remarks, "EOD-pending"
+    ]);
+
+    const allRows = [...eodRows, ...newTaskRows, ...pendingEodRows];
 
     if (allRows.length > 0) {
       await sheets.spreadsheets.values.append({
