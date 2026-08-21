@@ -8,6 +8,7 @@ const CAT_COLORS = { "Active":"#1a7a4a","Pending Feedback":"#b85c00","Waiting In
 const todayStr = () => new Date().toLocaleDateString("en-GB");
 const nowTime = () => new Date().toLocaleTimeString("en-GB", { hour:"2-digit", minute:"2-digit" });
 const emptyTask = () => ({ name:"", category:"Active", phase:"", pct:"", assignedBy:"", remarks:"" });
+const emptyPending = () => ({ name:"", category:"Pending Feedback", phase:"", pct:"", assignedBy:"", remarks:"" });
 
 const badge = (cat) => ({ display:"inline-block", padding:"2px 8px", borderRadius:10, fontSize:11, fontWeight:700,
   background:(CAT_COLORS[cat]||"#555")+"22", color:CAT_COLORS[cat]||"#555" });
@@ -41,6 +42,7 @@ export default function App() {
   const [date] = useState(todayStr());
   const [timeIn, setTimeIn] = useState("");
   const [tasks, setTasks] = useState([emptyTask()]);
+  const [pendingTasks, setPendingTasks] = useState([emptyPending()]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -48,6 +50,7 @@ export default function App() {
   const [eodFound, setEodFound] = useState(null);
   const [eodTimeOut, setEodTimeOut] = useState("");
   const [eodTasks, setEodTasks] = useState([]);
+  const [eodPendingTasks, setEodPendingTasks] = useState([]);
   const [eodNewTasks, setEodNewTasks] = useState([]);
   const [eodSaving, setEodSaving] = useState(false);
   const [eodSaved, setEodSaved] = useState(false);
@@ -63,7 +66,7 @@ export default function App() {
   const [rptTab, setRptTab] = useState("daily");
   const [rptRows, setRptRows] = useState([]);
   const [rptLoading, setRptLoading] = useState(false);
-  const [rptDate, setRptDate] = useState(todayStr());
+  const [rptDate, setRptDate] = useState("daily");
   const [attendance, setAttendance] = useState({});
   const [knownStaff, setKnownStaff] = useState([]);
   const [cutoff, setCutoff] = useState("10:30");
@@ -71,7 +74,11 @@ export default function App() {
   const addTask = () => setTasks(t => [...t, emptyTask()]);
   const removeTask = i => setTasks(t => t.filter((_, idx) => idx !== i));
   const updateTask = (i, f, v) => setTasks(t => t.map((r, idx) => idx === i ? { ...r, [f]: v } : r));
+  const addPendingTask = () => setPendingTasks(t => [...t, emptyPending()]);
+  const removePendingTask = i => setPendingTasks(t => t.filter((_, idx) => idx !== i));
+  const updatePendingTask = (i, f, v) => setPendingTasks(t => t.map((r, idx) => idx === i ? { ...r, [f]: v } : r));
   const updateEodTask = (i, f, v) => setEodTasks(t => t.map((r, idx) => idx === i ? { ...r, [f]: v } : r));
+  const updateEodPendingTask = (i, f, v) => setEodPendingTasks(t => t.map((r, idx) => idx === i ? { ...r, [f]: v } : r));
   const updateEodNewTask = (i, f, v) => setEodNewTasks(t => t.map((r, idx) => idx === i ? { ...r, [f]: v } : r));
   const removeEodNewTask = i => setEodNewTasks(t => t.filter((_, idx) => idx !== i));
 
@@ -86,7 +93,7 @@ export default function App() {
     setError(""); setSaving(true);
     try {
       const res = await fetch("/api/submit", { method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ name:name.trim(), date, timeIn, timeOut:"", tasks }) });
+        body: JSON.stringify({ name:name.trim(), date, timeIn, timeOut:"", tasks, pendingTasks }) });
       if (!res.ok) throw new Error();
       setSaved(true);
     } catch { setError("Could not save. Please try again."); }
@@ -100,8 +107,13 @@ export default function App() {
       const res = await fetch(`/api/entries?date=${encodeURIComponent(todayStr())}`);
       const data = await res.json();
       const match = (data.entries||[]).find(e => e.name.toLowerCase() === eodName.trim().toLowerCase());
-      if (match) { setEodFound(match); setEodTasks(match.tasks.map(t=>({...t, pct: t.morningPct||"" }))); setEodTimeOut(match.timeOut||""); setEodNewTasks([]); }
-      else setEodError("No morning log found. Check your name or submit a morning log first.");
+      if (match) {
+        setEodFound(match);
+        setEodTasks(match.tasks.map(t=>({...t, pct: t.morningPct||"" })));
+        setEodPendingTasks(match.pendingTasks ? match.pendingTasks.map(t=>({...t, pct: t.morningPct||"" })) : []);
+        setEodTimeOut(match.timeOut||"");
+        setEodNewTasks([]);
+      } else setEodError("No morning log found. Check your name or submit a morning log first.");
     } catch { setEodError("Could not find your log. Please try again."); }
     setEodSearching(false);
   };
@@ -111,7 +123,7 @@ export default function App() {
     setEodError(""); setEodSaving(true);
     try {
       const res = await fetch("/api/update", { method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ name:eodFound.name, date:todayStr(), timeOut:eodTimeOut, tasks:eodTasks, newTasks:eodNewTasks }) });
+        body: JSON.stringify({ name:eodFound.name, date:todayStr(), timeOut:eodTimeOut, tasks:eodTasks, newTasks:eodNewTasks, pendingTasks:eodPendingTasks }) });
       if (!res.ok) throw new Error();
       setEodSaved(true);
     } catch { setEodError("Could not save. Please try again."); }
@@ -157,7 +169,7 @@ export default function App() {
 
   const catCounts = useMemo(() => rptRows.filter(r=>r.type==="morning").reduce((m,r)=>{ m[r.category]=(m[r.category]||0)+1; return m; }, {}), [rptRows]);
   const stuckTasks = useMemo(() => rptRows.filter(r=>r.type==="morning"&&r.pct===0&&r.taskName), [rptRows]);
-  const pendingFeedback = useMemo(() => rptRows.filter(r=>r.type==="morning"&&r.category==="Pending Feedback"&&r.taskName), [rptRows]);
+  const pendingFeedback = useMemo(() => rptRows.filter(r=>r.type==="morning-pending"&&r.taskName), [rptRows]);
 
   if (view === "choose") return (
     <div style={s.wrap}>
@@ -184,7 +196,7 @@ export default function App() {
           <div style={{ fontSize:48, marginBottom:12 }}>✅</div>
           <div style={{ fontSize:20, fontWeight:700, color:"#1a7a4a" }}>Morning log submitted!</div>
           <div style={{ color:"#666", marginTop:8 }}>Come back at end of day to update your time out and task progress.</div>
-          <button style={{ ...s.btn(), marginTop:24 }} onClick={() => { setSaved(false); setName(""); setTimeIn(""); setTasks([emptyTask()]); }}>Submit Another</button>
+          <button style={{ ...s.btn(), marginTop:24 }} onClick={() => { setSaved(false); setName(""); setTimeIn(""); setTasks([emptyTask()]); setPendingTasks([emptyPending()]); }}>Submit Another</button>
         </div>
       ) : (
         <div style={s.card}>
@@ -202,7 +214,9 @@ export default function App() {
               </div>
             </div>
           </div>
-          <div style={{ fontSize:15, fontWeight:700, color:"#1a3a5c", marginBottom:12 }}>Tasks for Today</div>
+
+          <div style={{ fontSize:15, fontWeight:700, color:"#1a3a5c", marginBottom:4 }}>Tasks for Today</div>
+          <div style={{ fontSize:12, color:"#aaa", marginBottom:12 }}>Active tasks you are working on today</div>
           {tasks.map((t, i) => (
             <div key={i} style={s.taskRow}>
               <div style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
@@ -221,7 +235,29 @@ export default function App() {
               <div><label style={s.label}>Remarks</label><input style={s.input} value={t.remarks} onChange={e => updateTask(i,"remarks",e.target.value)} placeholder="Notes, milestones, blockers..." /></div>
             </div>
           ))}
-          <button style={{ ...s.btn("#4a90d9"), marginBottom:16, width:"100%" }} onClick={addTask}>+ Add Task</button>
+          <button style={{ ...s.btn("#4a90d9"), marginBottom:20, width:"100%" }} onClick={addTask}>+ Add Task</button>
+
+          <div style={{ fontSize:15, fontWeight:700, color:"#7a1a8a", marginBottom:4 }}>Tasks Pending Feedback</div>
+          <div style={{ fontSize:12, color:"#aaa", marginBottom:12 }}>Tasks waiting on client or internal approval</div>
+          {pendingTasks.map((t, i) => (
+            <div key={i} style={{ ...s.taskRow, border:"1.5px solid #e8d5f0" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:10 }}>
+                <span style={{ fontWeight:600, fontSize:13, color:"#7a1a8a" }}>Pending Task {i+1}</span>
+                {pendingTasks.length > 1 && <button onClick={() => removePendingTask(i)} style={{ background:"none", border:"none", color:"#c0392b", cursor:"pointer", fontSize:18 }}>×</button>}
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:10, marginBottom:10 }}>
+                <div><label style={s.label}>Task Name</label><input style={s.input} value={t.name} onChange={e => updatePendingTask(i,"name",e.target.value)} placeholder="Type task name" /></div>
+                <div><label style={s.label}>Category</label><select style={s.select} value={t.category} onChange={e => updatePendingTask(i,"category",e.target.value)}>{CATEGORIES.map(c=><option key={c}>{c}</option>)}</select></div>
+              </div>
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:10 }}>
+                <div><label style={s.label}>Phase</label><input style={s.input} value={t.phase} onChange={e => updatePendingTask(i,"phase",e.target.value)} placeholder="Alpha, Beta, STB..." /></div>
+                <div><label style={s.label}>Completion %</label><input style={s.input} type="number" min="0" max="100" value={t.pct} onChange={e => updatePendingTask(i,"pct",e.target.value)} placeholder="0-100" /></div>
+                <div><label style={s.label}>Assigned By</label><select style={s.select} value={t.assignedBy} onChange={e => updatePendingTask(i,"assignedBy",e.target.value)}><option value="">Select</option>{ASSIGNED_BY.map(a=><option key={a}>{a}</option>)}</select></div>
+              </div>
+              <div><label style={s.label}>Remarks</label><input style={s.input} value={t.remarks} onChange={e => updatePendingTask(i,"remarks",e.target.value)} placeholder="Where is this task sitting? Any updates?" /></div>
+            </div>
+          ))}
+          <button style={{ ...s.btn("#7a1a8a"), marginBottom:20, width:"100%" }} onClick={addPendingTask}>+ Add Pending Task</button>
           <button style={{ ...s.btn(), width:"100%", padding:"12px", fontSize:15 }} onClick={handleMorningSubmit} disabled={saving}>
             {saving ? <><Spinner />Saving...</> : "Submit Morning Log"}
           </button>
@@ -233,7 +269,7 @@ export default function App() {
 
   if (view === "eod") return (
     <div style={s.wrap}>
-      <div style={s.header}><span style={s.logo}>🌆 End of Day Update</span><button style={s.pill} onClick={() => { setView("choose"); setEodFound(null); setEodName(""); setEodError(""); setEodSaved(false); setEodNewTasks([]); }}>← Back</button></div>
+      <div style={s.header}><span style={s.logo}>🌆 End of Day Update</span><button style={s.pill} onClick={() => { setView("choose"); setEodFound(null); setEodName(""); setEodError(""); setEodSaved(false); setEodNewTasks([]); setEodPendingTasks([]); }}>← Back</button></div>
       {eodSaved ? (
         <div style={{ ...s.card, textAlign:"center", padding:"48px 24px" }}>
           <div style={{ fontSize:48, marginBottom:12 }}>✅</div>
@@ -263,11 +299,12 @@ export default function App() {
               <button style={s.timebtn} onClick={() => setEodTimeOut(nowTime())}>Now</button>
             </div>
           </div>
-          <div style={{ fontSize:15, fontWeight:700, color:"#1a3a5c", marginBottom:4 }}>Update Existing Tasks</div>
+
+          <div style={{ fontSize:15, fontWeight:700, color:"#1a3a5c", marginBottom:4 }}>Update Active Tasks</div>
           <div style={{ fontSize:12, color:"#aaa", marginBottom:12 }}>Update progress on tasks you logged this morning</div>
           {eodTasks.map((t, i) => (
             <div key={i} style={s.taskRow}>
-              <div style={{ fontWeight:600, fontSize:14, color:"#1a3a5c", marginBottom:10 }}>{t.name||`Task ${i+1}`} <span style={badge(t.morningCategory||t.category)}>{t.morningCategory||t.category}</span></div>
+              <div style={{ fontWeight:600, fontSize:14, color:"#1a3a5c", marginBottom:6 }}>{t.name||`Task ${i+1}`} <span style={badge(t.morningCategory||t.category)}>{t.morningCategory||t.category}</span></div>
               <div style={{ fontSize:12, color:"#888", marginBottom:10 }}>Morning %: <b>{t.morningPct !== null ? t.morningPct+"%" : "—"}</b></div>
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
                 <div><label style={s.label}>EOD Completion %</label><input style={s.input} type="number" min="0" max="100" value={t.pct} onChange={e => updateEodTask(i,"pct",e.target.value)} placeholder="0-100" /></div>
@@ -276,6 +313,23 @@ export default function App() {
               <div><label style={s.label}>End of Day Remarks</label><input style={s.input} value={t.remarks} onChange={e => updateEodTask(i,"remarks",e.target.value)} placeholder="Progress update, blockers, next steps..." /></div>
             </div>
           ))}
+
+          {eodPendingTasks.length > 0 && <>
+            <div style={{ fontSize:15, fontWeight:700, color:"#7a1a8a", marginBottom:4, marginTop:24 }}>Update Pending Tasks</div>
+            <div style={{ fontSize:12, color:"#aaa", marginBottom:12 }}>Update status — change category to Active if approved</div>
+            {eodPendingTasks.map((t, i) => (
+              <div key={i} style={{ ...s.taskRow, border:"1.5px solid #e8d5f0" }}>
+                <div style={{ fontWeight:600, fontSize:14, color:"#7a1a8a", marginBottom:6 }}>{t.name||`Pending Task ${i+1}`} <span style={badge(t.morningCategory||t.category)}>{t.morningCategory||t.category}</span></div>
+                <div style={{ fontSize:12, color:"#888", marginBottom:10 }}>Morning %: <b>{t.morningPct !== null ? t.morningPct+"%" : "—"}</b></div>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:10 }}>
+                  <div><label style={s.label}>EOD Completion %</label><input style={s.input} type="number" min="0" max="100" value={t.pct} onChange={e => updateEodPendingTask(i,"pct",e.target.value)} placeholder="0-100" /></div>
+                  <div><label style={s.label}>Category (change to Active if approved)</label><select style={s.select} value={t.category} onChange={e => updateEodPendingTask(i,"category",e.target.value)}>{CATEGORIES.map(c=><option key={c}>{c}</option>)}</select></div>
+                </div>
+                <div><label style={s.label}>Remarks</label><input style={s.input} value={t.remarks} onChange={e => updateEodPendingTask(i,"remarks",e.target.value)} placeholder="Any updates? Approved? Still waiting?" /></div>
+              </div>
+            ))}
+          </>}
+
           <div style={{ fontSize:15, fontWeight:700, color:"#1a3a5c", marginBottom:4, marginTop:24 }}>Additional Tasks</div>
           <div style={{ fontSize:12, color:"#aaa", marginBottom:12 }}>Add any new tasks that came up during the day</div>
           {eodNewTasks.map((t, i) => (
@@ -346,31 +400,56 @@ export default function App() {
                 <span style={{ fontSize:13, color:"#666", background:"#f0f4fa", borderRadius:8, padding:"4px 12px" }}>🕐 In: <b>{e.timeIn||"—"}</b> &nbsp;|&nbsp; Out: <b>{e.timeOut||"—"}</b></span>
               </div>
               {e.tasks.length > 0 ? (
+                <>
+                  <div style={{ fontSize:13, fontWeight:700, color:"#1a3a5c", marginBottom:8 }}>Active Tasks</div>
+                  <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                    <thead><tr>{["#","Task","Phase","By","Morning %","EOD %","Progress","EOD Remarks"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
+                    <tbody>{e.tasks.map((t,j)=>{
+                      const mPct = t.morningPct !== null ? t.morningPct : null;
+                      const ePct = t.eodPct !== null ? t.eodPct : null;
+                      const diff = mPct !== null && ePct !== null ? ePct - mPct : null;
+                      return (
+                        <tr key={j}>
+                          <td style={s.td}>{j+1}</td>
+                          <td style={{ ...s.td, fontWeight:500 }}>{t.name||"—"}</td>
+                          <td style={{ ...s.td, color:"#555" }}>{t.phase||"—"}</td>
+                          <td style={s.td}>{t.assignedBy||"—"}</td>
+                          <td style={{ ...s.td, color:"#888" }}>{mPct !== null ? mPct+"%" : "—"}</td>
+                          <td style={{ ...s.td, fontWeight:700, color:ePct>=100?"#1a7a4a":ePct>0?"#b85c00":"#aaa" }}>{ePct !== null ? ePct+"%" : "—"}</td>
+                          <td style={s.td}>{diff !== null ? <span style={{ fontWeight:700, color:diff>0?"#1a7a4a":diff===0?"#888":"#c0392b" }}>{diff>0?"+":""}{diff}%</span> : <span style={{ color:"#aaa", fontSize:12 }}>No EOD yet</span>}</td>
+                          <td style={{ ...s.td, color:"#666", fontSize:12 }}>{t.eodRemarks||t.morningRemarks||"—"}</td>
+                        </tr>
+                      );
+                    })}</tbody>
+                  </table>
+                </>
+              ) : <div style={{ color:"#bbb", fontSize:13 }}>No active tasks logged.</div>}
+
+              {e.pendingTasks && e.pendingTasks.length > 0 && <>
+                <div style={{ fontSize:13, fontWeight:700, color:"#7a1a8a", margin:"16px 0 8px" }}>Tasks Pending Feedback</div>
                 <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                  <thead><tr>{["#","Task","Phase","By","Morning %","EOD %","Progress","EOD Remarks"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
-                  <tbody>{e.tasks.map((t,j)=>{
+                  <thead><tr>{["#","Task","Phase","By","Morning %","EOD %","Progress","Status","Remarks"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
+                  <tbody>{e.pendingTasks.map((t,j)=>{
                     const mPct = t.morningPct !== null ? t.morningPct : null;
                     const ePct = t.eodPct !== null ? t.eodPct : null;
                     const diff = mPct !== null && ePct !== null ? ePct - mPct : null;
+                    const statusChanged = t.eodCategory && t.morningCategory && t.eodCategory !== t.morningCategory;
                     return (
-                      <tr key={j}>
+                      <tr key={j} style={{ background:"#fdf8ff" }}>
                         <td style={s.td}>{j+1}</td>
                         <td style={{ ...s.td, fontWeight:500 }}>{t.name||"—"}</td>
                         <td style={{ ...s.td, color:"#555" }}>{t.phase||"—"}</td>
                         <td style={s.td}>{t.assignedBy||"—"}</td>
                         <td style={{ ...s.td, color:"#888" }}>{mPct !== null ? mPct+"%" : "—"}</td>
                         <td style={{ ...s.td, fontWeight:700, color:ePct>=100?"#1a7a4a":ePct>0?"#b85c00":"#aaa" }}>{ePct !== null ? ePct+"%" : "—"}</td>
-                        <td style={s.td}>
-                          {diff !== null ? (
-                            <span style={{ fontWeight:700, color:diff>0?"#1a7a4a":diff===0?"#888":"#c0392b" }}>{diff>0?"+":""}{diff}%</span>
-                          ) : <span style={{ color:"#aaa", fontSize:12 }}>No EOD yet</span>}
-                        </td>
+                        <td style={s.td}>{diff !== null ? <span style={{ fontWeight:700, color:diff>0?"#1a7a4a":diff===0?"#888":"#c0392b" }}>{diff>0?"+":""}{diff}%</span> : <span style={{ color:"#aaa", fontSize:12 }}>No EOD</span>}</td>
+                        <td style={s.td}>{statusChanged ? <span style={{ fontWeight:700, color:"#1a7a4a", fontSize:12 }}>✅ → {t.eodCategory}</span> : <span style={badge(t.morningCategory||t.category)}>{t.morningCategory||t.category}</span>}</td>
                         <td style={{ ...s.td, color:"#666", fontSize:12 }}>{t.eodRemarks||t.morningRemarks||"—"}</td>
                       </tr>
                     );
                   })}</tbody>
                 </table>
-              ) : <div style={{ color:"#bbb", fontSize:13 }}>No tasks logged.</div>}
+              </>}
             </div>
           ))}
         </>
@@ -379,11 +458,7 @@ export default function App() {
       {rptTab === "reports" && (
         <>
           {rptLoading && <div style={{ ...s.card, textAlign:"center", color:"#888" }}><Spinner />Loading report data...</div>}
-          {!rptLoading && rptRows.length === 0 && (
-            <div style={{ ...s.card, textAlign:"center" }}>
-              <button style={{ ...s.btn(), marginTop:8 }} onClick={loadReports}>Load Reports</button>
-            </div>
-          )}
+          {!rptLoading && rptRows.length === 0 && <div style={{ ...s.card, textAlign:"center" }}><button style={{ ...s.btn(), marginTop:8 }} onClick={loadReports}>Load Reports</button></div>}
           {rptRows.length > 0 && (
             <>
               <div style={{ display:"flex", gap:4, padding:"12px 24px 0", flexWrap:"wrap" }}>
@@ -424,19 +499,17 @@ export default function App() {
                       <div style={{ fontWeight:700, color:"#1a3a5c", marginBottom:12 }}>📋 Attendance — {latestDate}</div>
                       <table style={{ width:"100%", borderCollapse:"collapse" }}>
                         <thead><tr>{["Name","Time In","Status"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
-                        <tbody>
-                          {todayAttendance.sort((a,b)=>{ const o={"present":0,"late":1,"unaccounted":2}; return o[a.status]-o[b.status]; }).map((a,i)=>(
-                            <tr key={i}>
-                              <td style={{ ...s.td, fontWeight:600 }}>{a.name}</td>
-                              <td style={s.td}>{a.timeIn||"—"}</td>
-                              <td style={s.td}>
-                                {a.status==="present"&&<span style={{ ...badge("Active"), padding:"3px 10px" }}>✅ On Time</span>}
-                                {a.status==="late"&&<span style={{ ...badge("Pending Feedback"), padding:"3px 10px" }}>🕐 Late (after {cutoff})</span>}
-                                {a.status==="unaccounted"&&<span style={{ ...badge("Waiting for Client"), padding:"3px 10px" }}>🔴 Unaccounted</span>}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
+                        <tbody>{todayAttendance.sort((a,b)=>{ const o={"present":0,"late":1,"unaccounted":2}; return o[a.status]-o[b.status]; }).map((a,i)=>(
+                          <tr key={i}>
+                            <td style={{ ...s.td, fontWeight:600 }}>{a.name}</td>
+                            <td style={s.td}>{a.timeIn||"—"}</td>
+                            <td style={s.td}>
+                              {a.status==="present"&&<span style={{ ...badge("Active"), padding:"3px 10px" }}>✅ On Time</span>}
+                              {a.status==="late"&&<span style={{ ...badge("Pending Feedback"), padding:"3px 10px" }}>🕐 Late (after {cutoff})</span>}
+                              {a.status==="unaccounted"&&<span style={{ ...badge("Waiting for Client"), padding:"3px 10px" }}>🔴 Unaccounted</span>}
+                            </td>
+                          </tr>
+                        ))}</tbody>
                       </table>
                     </div>
                     {todayPeople.map((p,i)=>(
@@ -469,21 +542,20 @@ export default function App() {
                   <div style={s.card}>
                     <div style={{ fontWeight:700, color:"#1a3a5c", marginBottom:16 }}>Workload by Team Member</div>
                     <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                      <thead><tr>{["Name","Days","Tasks","Avg/Day","Done","In Progress","Pending","Avg Progress/Day"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
+                      <thead><tr>{["Name","Days","Active Tasks","Pending Tasks","Avg/Day","Done","In Progress"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
                       <tbody>{byPerson.map((p,i)=>{
+                        const pendCount = rptRows.filter(r=>r.name===p.name&&r.type==="morning-pending").length;
                         const comp=p.tasks.filter(t=>t.pct>=100).length;
                         const inProg=p.tasks.filter(t=>t.pct>0&&t.pct<100).length;
-                        const pend=p.tasks.filter(t=>["Pending Feedback","Waiting Internal","Waiting for Client"].includes(t.category)).length;
                         const color=p.tasks.length>15?"#c0392b":p.tasks.length>8?"#b85c00":"#1a7a4a";
                         return <tr key={i}>
                           <td style={{ ...s.td, fontWeight:600 }}>{p.name}</td>
                           <td style={s.td}>{p.days.size}</td>
                           <td style={{ ...s.td, fontWeight:700, color }}>{p.tasks.length}</td>
+                          <td style={{ ...s.td, fontWeight:700, color:"#7a1a8a" }}>{pendCount}</td>
                           <td style={s.td}>{(p.tasks.length/p.days.size).toFixed(1)}</td>
                           <td style={{ ...s.td, color:"#1a7a4a", fontWeight:600 }}>{comp}</td>
                           <td style={{ ...s.td, color:"#b85c00", fontWeight:600 }}>{inProg}</td>
-                          <td style={{ ...s.td, color:"#7a1a8a", fontWeight:600 }}>{pend}</td>
-                          <td style={{ ...s.td, color:"#1a3a5c", fontWeight:600 }}>{p.tasks.length>0?(p.tasks.reduce((s,t)=>s+t.pct,0)/p.tasks.length).toFixed(0)+"%":"—"}</td>
                         </tr>;
                       })}</tbody>
                     </table>
@@ -512,19 +584,23 @@ export default function App() {
                     ))}
                   </div>
                   <div style={s.card}>
-                    <div style={{ fontWeight:700, color:"#b85c00", marginBottom:12 }}>⏳ Pending Feedback ({pendingFeedback.length})</div>
+                    <div style={{ fontWeight:700, color:"#7a1a8a", marginBottom:12 }}>⏳ Tasks Pending Feedback ({pendingFeedback.length})</div>
                     {pendingFeedback.length===0?<div style={{ color:"#aaa" }}>None</div>:
                     <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                      <thead><tr>{["Date","Who","Task","Phase","%"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
+                      <thead><tr>{["Date","Who","Task","Phase","%","By","Remarks"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
                       <tbody>{pendingFeedback.map((t,i)=><tr key={i}>
-                        <td style={s.td}>{t.date}</td><td style={{ ...s.td, fontWeight:600 }}>{t.name}</td>
-                        <td style={s.td}>{t.taskName}</td><td style={s.td}>{t.phase||"—"}</td>
+                        <td style={s.td}>{t.date}</td>
+                        <td style={{ ...s.td, fontWeight:600 }}>{t.name}</td>
+                        <td style={s.td}>{t.taskName}</td>
+                        <td style={s.td}>{t.phase||"—"}</td>
                         <td style={{ ...s.td, fontWeight:700 }}>{t.pct}%</td>
+                        <td style={s.td}>{t.assignedBy||"—"}</td>
+                        <td style={{ ...s.td, fontSize:12, color:"#666" }}>{t.remarks||"—"}</td>
                       </tr>)}</tbody>
                     </table>}
                   </div>
                   <div style={s.card}>
-                    <div style={{ fontWeight:700, color:"#c0392b", marginBottom:12 }}>🔴 Tasks at 0% ({stuckTasks.length})</div>
+                    <div style={{ fontWeight:700, color:"#c0392b", marginBottom:12 }}>🔴 Active Tasks at 0% ({stuckTasks.length})</div>
                     {stuckTasks.length===0?<div style={{ color:"#aaa" }}>None</div>:
                     <table style={{ width:"100%", borderCollapse:"collapse" }}>
                       <thead><tr>{["Date","Who","Task","Category","By"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
@@ -541,9 +617,9 @@ export default function App() {
               {rptDate === "monthly" && (
                 <>
                   <div style={{ display:"flex", gap:12, padding:"12px 24px", flexWrap:"wrap" }}>
-                    {[["#1a3a5c",byPerson.reduce((s,p)=>s+p.tasks.length,0),"Total Tasks"],
+                    {[["#1a3a5c",byPerson.reduce((s,p)=>s+p.tasks.length,0),"Total Active Tasks"],
+                      ["#7a1a8a",rptRows.filter(r=>r.type==="morning-pending").length,"Total Pending Tasks"],
                       ["#1a7a4a",byPerson.reduce((s,p)=>s+p.tasks.filter(t=>t.pct>=100).length,0),"Completed"],
-                      ["#b85c00",byPerson.reduce((s,p)=>s+p.tasks.filter(t=>t.pct>0&&t.pct<100).length,0),"In Progress"],
                       ["#c0392b",byPerson.reduce((s,p)=>s+p.tasks.filter(t=>t.pct===0).length,0),"Not Started"]
                     ].map(([c,n,l])=>(
                       <div key={l} style={s.statCard(c)}><div style={{ fontSize:28, fontWeight:800 }}>{n}</div><div style={{ fontSize:12, opacity:0.85 }}>{l}</div></div>
@@ -570,11 +646,12 @@ export default function App() {
                     <div style={{ fontWeight:700, color:"#1a3a5c", marginBottom:16 }}>Submissions by Day</div>
                     {rptDates.map((d,i)=>{
                       const submitters=[...new Set(rptRows.filter(r=>r.date===d&&r.type==="morning").map(r=>r.name))];
-                      const tasks=rptRows.filter(r=>r.date===d&&r.type==="morning").length;
+                      const activeTasks=rptRows.filter(r=>r.date===d&&r.type==="morning").length;
+                      const pendTasks=rptRows.filter(r=>r.date===d&&r.type==="morning-pending").length;
                       return <div key={i} style={{ marginBottom:12, paddingBottom:12, borderBottom:"1px solid #f0f2f8" }}>
                         <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
                           <span style={{ fontWeight:600, fontSize:13 }}>{d}</span>
-                          <span style={{ fontSize:12, color:"#888" }}>{submitters.length} staff · {tasks} tasks</span>
+                          <span style={{ fontSize:12, color:"#888" }}>{submitters.length} staff · {activeTasks} active · {pendTasks} pending</span>
                         </div>
                         <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
                           {submitters.map(n=><span key={n} style={{ fontSize:11, fontWeight:600, background:"#e8eef8", color:"#1a3a5c", padding:"2px 8px", borderRadius:8 }}>{n}</span>)}
