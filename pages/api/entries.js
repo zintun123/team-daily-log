@@ -26,16 +26,20 @@ export default async function handler(req, res) {
     const map = {};
     for (const r of rows) {
       const [rowDate, name, timeIn, timeOut, taskNo, taskName, category, phase, pct, assignedBy, remarks, type] = r;
-      const rowType = (type || "morning").toLowerCase() === "eod" ? "eod" : "morning";
+      const rowType = (type || "morning").toLowerCase();
+      const isPending = rowType.includes("pending");
+      const isEod = rowType.includes("eod");
 
-      if (!map[name]) map[name] = { name, timeIn: "", timeOut: "", tasks: {} };
+      if (!map[name]) map[name] = { name, timeIn: "", timeOut: "", tasks: {}, pendingTasks: {} };
 
-      if (rowType === "morning" && timeIn) map[name].timeIn = timeIn;
-      if (rowType === "eod" && timeOut) map[name].timeOut = timeOut;
+      if (!isEod && timeIn) map[name].timeIn = timeIn;
+      if (isEod && timeOut) map[name].timeOut = timeOut;
 
+      const bucket = isPending ? map[name].pendingTasks : map[name].tasks;
       const key = taskNo || taskName;
-      if (!map[name].tasks[key]) {
-        map[name].tasks[key] = {
+
+      if (!bucket[key]) {
+        bucket[key] = {
           taskNo, name: taskName, category, phase,
           assignedBy, remarks,
           morningPct: null, eodPct: null,
@@ -44,8 +48,8 @@ export default async function handler(req, res) {
         };
       }
 
-      const task = map[name].tasks[key];
-      if (rowType === "morning") {
+      const task = bucket[key];
+      if (!isEod) {
         task.morningPct = pct !== "" ? parseFloat(pct) : null;
         task.morningRemarks = remarks;
         task.morningCategory = category;
@@ -62,7 +66,8 @@ export default async function handler(req, res) {
 
     const entries = Object.values(map).map(p => ({
       ...p,
-      tasks: Object.values(p.tasks)
+      tasks: Object.values(p.tasks),
+      pendingTasks: Object.values(p.pendingTasks)
     }));
 
     res.status(200).json({ entries });
