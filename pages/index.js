@@ -2,7 +2,6 @@ import { useState, useMemo } from "react";
 
 const ASSIGNED_BY = ["Lara", "Zin Zin", "Aisyah", "Toni", "Swapna", "Olive"];
 const CATEGORIES = ["Active", "Pending Feedback", "Waiting Internal", "Waiting for Client"];
-const ACTIVE_ONLY = ["Active"];
 const PENDING_CATEGORIES = ["Pending Feedback", "Waiting Internal", "Waiting for Client"];
 const PENDING_WITH_ACTIVE = ["Pending Feedback", "Waiting Internal", "Waiting for Client", "Active"];
 const MANAGER_PASSWORD = "Vdw@2026";
@@ -73,6 +72,7 @@ export default function App() {
   const [attendance, setAttendance] = useState({});
   const [knownStaff, setKnownStaff] = useState([]);
   const [cutoff, setCutoff] = useState("10:30");
+  const [startTime, setStartTime] = useState("09:00");
   const [selectedStaff, setSelectedStaff] = useState("");
 
   const addTask = () => setTasks(t => [...t, emptyTask()]);
@@ -153,6 +153,7 @@ export default function App() {
       setAttendance(data.attendance||{});
       setKnownStaff(data.knownStaff||[]);
       setCutoff(data.cutoff||"10:30");
+      setStartTime(data.startTime||"09:00");
     } catch {}
     setRptLoading(false);
   };
@@ -184,8 +185,41 @@ export default function App() {
       return p(a)-p(b);
     });
     const activeTasks = rows.filter(r=>r.type==="morning");
-    const pendingTasks = rows.filter(r=>r.type==="morning-pending");
-    const completed = activeTasks.filter(r=>r.pct>=100).length;
+    const pendingTaskRows = rows.filter(r=>r.type==="morning-pending");
+    const eodPendingRows = rows.filter(r=>r.type==="eod-pending");
+    const eodActiveRows = rows.filter(r=>r.type==="eod");
+
+    const enrichedActiveTasks = activeTasks.map(t => {
+      const eod = eodActiveRows.find(e => e.date === t.date && e.taskNo === t.taskNo);
+      let taskStatus = "no_eod";
+      let eodPct = null;
+      if (eod) {
+        eodPct = eod.pct;
+        if (eod.pct >= 100) taskStatus = "completed";
+        else if (eod.pct > 0) taskStatus = "in_progress";
+        else taskStatus = "not_started";
+      }
+      return { ...t, eodPct, taskStatus };
+    });
+
+    const pendingTasks = pendingTaskRows.map(t => {
+      const eod = eodPendingRows.find(e => e.date === t.date && e.taskNo === t.taskNo);
+      let resolvedStatus = "pending";
+      let eodPct = null;
+      let eodCategory = null;
+      if (eod) {
+        eodPct = eod.pct;
+        eodCategory = eod.category;
+        if (eod.category === "Active" && eod.pct >= 100) resolvedStatus = "completed";
+        else if (eod.category === "Active") resolvedStatus = "approved";
+        else resolvedStatus = "pending";
+      }
+      return { ...t, eodPct, eodCategory, resolvedStatus };
+    });
+
+    const completed = enrichedActiveTasks.filter(t=>t.taskStatus==="completed").length;
+    const inProgress = enrichedActiveTasks.filter(t=>t.taskStatus==="in_progress").length;
+    const noEod = enrichedActiveTasks.filter(t=>t.taskStatus==="no_eod").length;
     const attendanceRows = dates.map(d => {
       const att = (attendance[d]||[]).find(a=>a.name===selectedStaff);
       return { date:d, status: att?.status||"unaccounted", timeIn: att?.timeIn||null };
@@ -193,7 +227,8 @@ export default function App() {
     const onTime = attendanceRows.filter(a=>a.status==="present").length;
     const late = attendanceRows.filter(a=>a.status==="late").length;
     const absent = attendanceRows.filter(a=>a.status==="unaccounted").length;
-    return { dates, activeTasks, pendingTasks, completed, attendanceRows, onTime, late, absent };
+    const pendingResolved = pendingTasks.filter(t=>t.resolvedStatus!=="pending").length;
+    return { dates, activeTasks: enrichedActiveTasks, pendingTasks, completed, inProgress, noEod, attendanceRows, onTime, late, absent, pendingResolved };
   }, [selectedStaff, rptRows, attendance]);
 
   if (view === "choose") return (
@@ -506,7 +541,7 @@ export default function App() {
                 })();
                 return (
                   <>
-                    <div style={{ padding:"12px 24px 4px", fontSize:12, color:"#888" }}>Latest: <b>{latestDate}</b> | Cutoff: <b>{cutoff} AM</b> | Tracking <b>{knownStaff.length}</b> staff</div>
+                    <div style={{ padding:"12px 24px 4px", fontSize:12, color:"#888" }}>Latest: <b>{latestDate}</b> | Start time: <b>{startTime} AM</b> | Unaccounted after: <b>{cutoff} AM</b> | Tracking <b>{knownStaff.length}</b> staff (Mon–Fri)</div>
                     <div style={{ display:"flex", gap:12, padding:"8px 24px 12px", flexWrap:"wrap" }}>
                       {[["#1a7a4a",present.length,"✅ On Time"],["#b85c00",late.length,"🕐 Late"],["#c0392b",unaccounted.length,"🔴 Unaccounted"],
                         ["#1a3a5c",rptRows.filter(r=>r.date===latestDate&&r.type==="morning"&&r.pct>=100).length,"Tasks Done"]
@@ -524,7 +559,7 @@ export default function App() {
                             <td style={s.td}>{a.timeIn||"—"}</td>
                             <td style={s.td}>
                               {a.status==="present"&&<span style={{ ...badge("Active"), padding:"3px 10px" }}>✅ On Time</span>}
-                              {a.status==="late"&&<span style={{ ...badge("Pending Feedback"), padding:"3px 10px" }}>🕐 Late (after {cutoff})</span>}
+                              {a.status==="late"&&<span style={{ ...badge("Pending Feedback"), padding:"3px 10px" }}>🕐 Late</span>}
                               {a.status==="unaccounted"&&<span style={{ ...badge("Waiting for Client"), padding:"3px 10px" }}>🔴 Unaccounted</span>}
                             </td>
                           </tr>
@@ -695,8 +730,11 @@ export default function App() {
                         {[
                           ["#1a3a5c", staffReport.activeTasks.length, "Total Active Tasks"],
                           ["#7a1a8a", staffReport.pendingTasks.length, "Total Pending Tasks"],
-                          ["#1a7a4a", staffReport.completed, "Completed"],
-                          ["#1a7a4a", staffReport.onTime, "✅ On Time"],
+                          ["#1a7a4a", staffReport.completed, "✅ Completed"],
+                          ["#b85c00", staffReport.inProgress, "🔄 In Progress"],
+                          ["#c0392b", staffReport.noEod, "📝 No EOD Update"],
+                          ["#1a5ca8", staffReport.pendingResolved, "Pending Resolved"],
+                          ["#1a7a4a", staffReport.onTime, "On Time"],
                           ["#b85c00", staffReport.late, "🕐 Late"],
                           ["#c0392b", staffReport.absent, "🔴 Unaccounted"],
                         ].map(([c,n,l])=>(
@@ -724,14 +762,21 @@ export default function App() {
                         <div style={{ fontWeight:700, color:"#1a3a5c", marginBottom:12 }}>Active Tasks History — {selectedStaff}</div>
                         {staffReport.activeTasks.length === 0 ? <div style={{ color:"#aaa" }}>No active tasks logged.</div> :
                         <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                          <thead><tr>{["Date","Task","Phase","%","By","Remarks"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
+                          <thead><tr>{["Date","Task","Phase","Morning %","EOD %","By","Status","Remarks"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
                           <tbody>{staffReport.activeTasks.map((t,i)=>(
-                            <tr key={i}>
+                            <tr key={i} style={{ background: t.taskStatus==="completed"?"#f0fff4": t.taskStatus==="in_progress"?"#fffbf0": t.taskStatus==="no_eod"?"#fafafa":"#fff" }}>
                               <td style={{ ...s.td, color:"#888", fontSize:12 }}>{t.date}</td>
                               <td style={{ ...s.td, fontWeight:500 }}>{t.taskName||"—"}</td>
                               <td style={{ ...s.td, color:"#555" }}>{t.phase||"—"}</td>
-                              <td style={{ ...s.td, fontWeight:700, color:t.pct>=100?"#1a7a4a":t.pct>0?"#b85c00":"#aaa" }}>{t.pct}%</td>
+                              <td style={{ ...s.td, color:"#888" }}>{t.pct !== undefined ? t.pct+"%" : "—"}</td>
+                              <td style={{ ...s.td, fontWeight:700, color:t.eodPct>=100?"#1a7a4a":t.eodPct>0?"#b85c00":"#aaa" }}>{t.eodPct !== null ? t.eodPct+"%" : "—"}</td>
                               <td style={s.td}>{t.assignedBy||"—"}</td>
+                              <td style={s.td}>
+                                {t.taskStatus==="completed" && <span style={{ ...badge("Active"), padding:"3px 10px" }}>✅ Completed</span>}
+                                {t.taskStatus==="in_progress" && <span style={{ ...badge("Pending Feedback"), padding:"3px 10px" }}>🔄 In Progress</span>}
+                                {t.taskStatus==="not_started" && <span style={{ ...badge("Waiting Internal"), padding:"3px 10px" }}>⏳ Not Started</span>}
+                                {t.taskStatus==="no_eod" && <span style={{ color:"#aaa", fontSize:12 }}>📝 No EOD Update</span>}
+                              </td>
                               <td style={{ ...s.td, fontSize:12, color:"#666" }}>{t.remarks||"—"}</td>
                             </tr>
                           ))}</tbody>
@@ -741,14 +786,20 @@ export default function App() {
                         <div style={{ fontWeight:700, color:"#7a1a8a", marginBottom:12 }}>Pending Tasks History — {selectedStaff}</div>
                         {staffReport.pendingTasks.length === 0 ? <div style={{ color:"#aaa" }}>No pending tasks logged.</div> :
                         <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                          <thead><tr>{["Date","Task","Phase","%","By","Remarks"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
+                          <thead><tr>{["Date","Task","Phase","Morning %","EOD %","By","Status","Remarks"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
                           <tbody>{staffReport.pendingTasks.map((t,i)=>(
-                            <tr key={i} style={{ background:"#fdf8ff" }}>
+                            <tr key={i} style={{ background: t.resolvedStatus==="completed"?"#f0fff4": t.resolvedStatus==="approved"?"#f0f7ff":"#fdf8ff" }}>
                               <td style={{ ...s.td, color:"#888", fontSize:12 }}>{t.date}</td>
                               <td style={{ ...s.td, fontWeight:500 }}>{t.taskName||"—"}</td>
                               <td style={{ ...s.td, color:"#555" }}>{t.phase||"—"}</td>
-                              <td style={{ ...s.td, fontWeight:700, color:t.pct>=100?"#1a7a4a":t.pct>0?"#b85c00":"#aaa" }}>{t.pct}%</td>
+                              <td style={{ ...s.td, color:"#888" }}>{t.pct !== undefined ? t.pct+"%" : "—"}</td>
+                              <td style={{ ...s.td, fontWeight:700, color:t.eodPct>=100?"#1a7a4a":t.eodPct>0?"#b85c00":"#aaa" }}>{t.eodPct !== null ? t.eodPct+"%" : "—"}</td>
                               <td style={s.td}>{t.assignedBy||"—"}</td>
+                              <td style={s.td}>
+                                {t.resolvedStatus==="completed" && <span style={{ ...badge("Active"), padding:"3px 10px" }}>✔️ Completed</span>}
+                                {t.resolvedStatus==="approved" && <span style={{ ...badge("Waiting Internal"), padding:"3px 10px" }}>✅ Approved → Active</span>}
+                                {t.resolvedStatus==="pending" && <span style={{ ...badge("Pending Feedback"), padding:"3px 10px" }}>🟣 Still Pending</span>}
+                              </td>
                               <td style={{ ...s.td, fontSize:12, color:"#666" }}>{t.remarks||"—"}</td>
                             </tr>
                           ))}</tbody>
