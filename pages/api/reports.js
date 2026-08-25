@@ -2,6 +2,7 @@ import { google } from "googleapis";
 
 const SHEET_ID = "1OsR0vTeC0pozVXuZjNY_2DJ8Z-wE9xs6XS1X2c3nDjU";
 const CUTOFF_TIME = "10:30";
+const START_TIME = "09:00";
 
 async function getSheets() {
   const auth = new google.auth.GoogleAuth({
@@ -27,6 +28,12 @@ function normName(n) {
   return map[n.toLowerCase()] || n;
 }
 
+function isWeekend(dateStr) {
+  const [dd, mm, yy] = dateStr.split("/");
+  const day = new Date(`${yy}-${mm}-${dd}`).getDay();
+  return day === 0 || day === 6;
+}
+
 function parseTime(t) {
   if (!t) return null;
   const clean = t.replace(/\s?(AM|PM)/i, "").trim();
@@ -34,11 +41,12 @@ function parseTime(t) {
   return h * 60 + (m || 0);
 }
 
-function isLate(timeIn) {
+function getAttendanceStatus(timeIn) {
   const t = parseTime(timeIn);
-  if (t === null) return false;
-  const [ch, cm] = CUTOFF_TIME.split(":").map(Number);
-  return t > ch * 60 + cm;
+  if (t === null) return "unaccounted";
+  const [sh, sm] = START_TIME.split(":").map(Number);
+  const startMins = sh * 60 + sm;
+  return t <= startMins ? "present" : "late";
 }
 
 export default async function handler(req, res) {
@@ -74,7 +82,7 @@ export default async function handler(req, res) {
     }));
 
     const knownStaff = [...new Set(data.map(r => r.name))];
-    const dates = [...new Set(data.map(r => r.date))];
+    const dates = [...new Set(data.map(r => r.date))].filter(d => !isWeekend(d));
     const attendance = {};
     for (const date of dates) {
       const dayRows = data.filter(r => r.date === date && r.type === "morning");
@@ -84,14 +92,12 @@ export default async function handler(req, res) {
       }
       attendance[date] = knownStaff.map(name => ({
         name,
-        status: submitted[name]
-          ? isLate(submitted[name]) ? "late" : "present"
-          : "unaccounted",
+        status: submitted[name] ? getAttendanceStatus(submitted[name]) : "unaccounted",
         timeIn: submitted[name] || null
       }));
     }
 
-    res.status(200).json({ rows: data, progress, knownStaff, attendance, cutoff: CUTOFF_TIME });
+    res.status(200).json({ rows: data, progress, knownStaff, attendance, cutoff: CUTOFF_TIME, startTime: START_TIME });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: "Failed to load", rows: [], progress: [], knownStaff: [], attendance: {} });
