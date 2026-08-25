@@ -73,6 +73,7 @@ export default function App() {
   const [attendance, setAttendance] = useState({});
   const [knownStaff, setKnownStaff] = useState([]);
   const [cutoff, setCutoff] = useState("10:30");
+  const [selectedStaff, setSelectedStaff] = useState("");
 
   const addTask = () => setTasks(t => [...t, emptyTask()]);
   const removeTask = i => setTasks(t => t.filter((_, idx) => idx !== i));
@@ -173,6 +174,27 @@ export default function App() {
   const catCounts = useMemo(() => rptRows.filter(r=>r.type==="morning").reduce((m,r)=>{ m[r.category]=(m[r.category]||0)+1; return m; }, {}), [rptRows]);
   const stuckTasks = useMemo(() => rptRows.filter(r=>r.type==="morning"&&r.pct===0&&r.taskName), [rptRows]);
   const pendingFeedback = useMemo(() => rptRows.filter(r=>r.type==="morning-pending"&&r.taskName), [rptRows]);
+  const staffList = useMemo(() => [...new Set(rptRows.map(r=>r.name))].sort(), [rptRows]);
+
+  const staffReport = useMemo(() => {
+    if (!selectedStaff) return null;
+    const rows = rptRows.filter(r=>r.name===selectedStaff);
+    const dates = [...new Set(rows.map(r=>r.date))].sort((a,b)=>{
+      const p = d => { const [dd,mm,yy]=d.split("/"); return new Date(`${yy}-${mm}-${dd}`); };
+      return p(a)-p(b);
+    });
+    const activeTasks = rows.filter(r=>r.type==="morning");
+    const pendingTasks = rows.filter(r=>r.type==="morning-pending");
+    const completed = activeTasks.filter(r=>r.pct>=100).length;
+    const attendanceRows = dates.map(d => {
+      const att = (attendance[d]||[]).find(a=>a.name===selectedStaff);
+      return { date:d, status: att?.status||"unaccounted", timeIn: att?.timeIn||null };
+    });
+    const onTime = attendanceRows.filter(a=>a.status==="present").length;
+    const late = attendanceRows.filter(a=>a.status==="late").length;
+    const absent = attendanceRows.filter(a=>a.status==="unaccounted").length;
+    return { dates, activeTasks, pendingTasks, completed, attendanceRows, onTime, late, absent };
+  }, [selectedStaff, rptRows, attendance]);
 
   if (view === "choose") return (
     <div style={s.wrap}>
@@ -217,7 +239,6 @@ export default function App() {
               </div>
             </div>
           </div>
-
           <div style={{ fontSize:15, fontWeight:700, color:"#1a3a5c", marginBottom:4 }}>Tasks for Today</div>
           <div style={{ fontSize:12, color:"#aaa", marginBottom:12 }}>Active tasks you are working on today</div>
           {tasks.map((t, i) => (
@@ -239,7 +260,6 @@ export default function App() {
             </div>
           ))}
           <button style={{ ...s.btn("#4a90d9"), marginBottom:20, width:"100%" }} onClick={addTask}>+ Add Task</button>
-
           <div style={{ fontSize:15, fontWeight:700, color:"#7a1a8a", marginBottom:4 }}>Tasks Pending Feedback</div>
           <div style={{ fontSize:12, color:"#aaa", marginBottom:12 }}>Tasks waiting on client or internal approval</div>
           {pendingTasks.map((t, i) => (
@@ -302,7 +322,6 @@ export default function App() {
               <button style={s.timebtn} onClick={() => setEodTimeOut(nowTime())}>Now</button>
             </div>
           </div>
-
           <div style={{ fontSize:15, fontWeight:700, color:"#1a3a5c", marginBottom:4 }}>Update Active Tasks</div>
           <div style={{ fontSize:12, color:"#aaa", marginBottom:12 }}>Update progress on tasks you logged this morning</div>
           {eodTasks.map((t, i) => (
@@ -316,7 +335,6 @@ export default function App() {
               <div><label style={s.label}>End of Day Remarks</label><input style={s.input} value={t.remarks} onChange={e => updateEodTask(i,"remarks",e.target.value)} placeholder="Progress update, blockers, next steps..." /></div>
             </div>
           ))}
-
           {eodPendingTasks.length > 0 && <>
             <div style={{ fontSize:15, fontWeight:700, color:"#7a1a8a", marginBottom:4, marginTop:24 }}>Update Pending Tasks</div>
             <div style={{ fontSize:12, color:"#aaa", marginBottom:12 }}>Update status — change category to Active if approved</div>
@@ -332,7 +350,6 @@ export default function App() {
               </div>
             ))}
           </>}
-
           <div style={{ fontSize:15, fontWeight:700, color:"#1a3a5c", marginBottom:4, marginTop:24 }}>Additional Tasks</div>
           <div style={{ fontSize:12, color:"#aaa", marginBottom:12 }}>Add any new tasks that came up during the day</div>
           {eodNewTasks.map((t, i) => (
@@ -464,7 +481,7 @@ export default function App() {
           {rptRows.length > 0 && (
             <>
               <div style={{ display:"flex", gap:4, padding:"12px 24px 0", flexWrap:"wrap" }}>
-                {[["daily","📅 Daily Health"],["workload","⚖️ Workload"],["pipeline","🔄 Pipeline"],["monthly","📈 Monthly"]].map(([id,label]) => (
+                {[["daily","📅 Daily Health"],["workload","⚖️ Workload"],["pipeline","🔄 Pipeline"],["monthly","📈 Monthly"],["individual","👤 Individual"]].map(([id,label]) => (
                   <button key={id} style={{ padding:"8px 14px", border:"1.5px solid #dde", borderRadius:8, cursor:"pointer", fontWeight:600, fontSize:12,
                     background:rptDate===id?"#1a3a5c":"#fff", color:rptDate===id?"#fff":"#555" }}
                     onClick={() => setRptDate(id)}>{label}</button>
@@ -661,6 +678,85 @@ export default function App() {
                     })}
                   </div>
                 </>
+              )}
+
+              {rptDate === "individual" && (
+                <div>
+                  <div style={s.card}>
+                    <div style={{ fontWeight:700, color:"#1a3a5c", marginBottom:12 }}>Select Staff Member</div>
+                    <select style={{ ...s.select, maxWidth:300 }} value={selectedStaff} onChange={e => setSelectedStaff(e.target.value)}>
+                      <option value="">-- Select a staff member --</option>
+                      {staffList.map(n=><option key={n}>{n}</option>)}
+                    </select>
+                  </div>
+                  {selectedStaff && staffReport && (
+                    <>
+                      <div style={{ display:"flex", gap:12, padding:"0 24px 12px", flexWrap:"wrap" }}>
+                        {[
+                          ["#1a3a5c", staffReport.activeTasks.length, "Total Active Tasks"],
+                          ["#7a1a8a", staffReport.pendingTasks.length, "Total Pending Tasks"],
+                          ["#1a7a4a", staffReport.completed, "Completed"],
+                          ["#1a7a4a", staffReport.onTime, "✅ On Time"],
+                          ["#b85c00", staffReport.late, "🕐 Late"],
+                          ["#c0392b", staffReport.absent, "🔴 Unaccounted"],
+                        ].map(([c,n,l])=>(
+                          <div key={l} style={{ ...s.statCard(c), minWidth:100 }}><div style={{ fontSize:24, fontWeight:800 }}>{n}</div><div style={{ fontSize:11, opacity:0.85 }}>{l}</div></div>
+                        ))}
+                      </div>
+                      <div style={s.card}>
+                        <div style={{ fontWeight:700, color:"#1a3a5c", marginBottom:12 }}>📋 Attendance History — {selectedStaff}</div>
+                        <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                          <thead><tr>{["Date","Time In","Status"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
+                          <tbody>{staffReport.attendanceRows.map((a,i)=>(
+                            <tr key={i}>
+                              <td style={{ ...s.td, fontWeight:600 }}>{a.date}</td>
+                              <td style={s.td}>{a.timeIn||"—"}</td>
+                              <td style={s.td}>
+                                {a.status==="present"&&<span style={{ ...badge("Active"), padding:"3px 10px" }}>✅ On Time</span>}
+                                {a.status==="late"&&<span style={{ ...badge("Pending Feedback"), padding:"3px 10px" }}>🕐 Late</span>}
+                                {a.status==="unaccounted"&&<span style={{ ...badge("Waiting for Client"), padding:"3px 10px" }}>🔴 Unaccounted</span>}
+                              </td>
+                            </tr>
+                          ))}</tbody>
+                        </table>
+                      </div>
+                      <div style={s.card}>
+                        <div style={{ fontWeight:700, color:"#1a3a5c", marginBottom:12 }}>Active Tasks History — {selectedStaff}</div>
+                        {staffReport.activeTasks.length === 0 ? <div style={{ color:"#aaa" }}>No active tasks logged.</div> :
+                        <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                          <thead><tr>{["Date","Task","Phase","%","By","Remarks"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
+                          <tbody>{staffReport.activeTasks.map((t,i)=>(
+                            <tr key={i}>
+                              <td style={{ ...s.td, color:"#888", fontSize:12 }}>{t.date}</td>
+                              <td style={{ ...s.td, fontWeight:500 }}>{t.taskName||"—"}</td>
+                              <td style={{ ...s.td, color:"#555" }}>{t.phase||"—"}</td>
+                              <td style={{ ...s.td, fontWeight:700, color:t.pct>=100?"#1a7a4a":t.pct>0?"#b85c00":"#aaa" }}>{t.pct}%</td>
+                              <td style={s.td}>{t.assignedBy||"—"}</td>
+                              <td style={{ ...s.td, fontSize:12, color:"#666" }}>{t.remarks||"—"}</td>
+                            </tr>
+                          ))}</tbody>
+                        </table>}
+                      </div>
+                      <div style={s.card}>
+                        <div style={{ fontWeight:700, color:"#7a1a8a", marginBottom:12 }}>Pending Tasks History — {selectedStaff}</div>
+                        {staffReport.pendingTasks.length === 0 ? <div style={{ color:"#aaa" }}>No pending tasks logged.</div> :
+                        <table style={{ width:"100%", borderCollapse:"collapse" }}>
+                          <thead><tr>{["Date","Task","Phase","%","By","Remarks"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
+                          <tbody>{staffReport.pendingTasks.map((t,i)=>(
+                            <tr key={i} style={{ background:"#fdf8ff" }}>
+                              <td style={{ ...s.td, color:"#888", fontSize:12 }}>{t.date}</td>
+                              <td style={{ ...s.td, fontWeight:500 }}>{t.taskName||"—"}</td>
+                              <td style={{ ...s.td, color:"#555" }}>{t.phase||"—"}</td>
+                              <td style={{ ...s.td, fontWeight:700, color:t.pct>=100?"#1a7a4a":t.pct>0?"#b85c00":"#aaa" }}>{t.pct}%</td>
+                              <td style={s.td}>{t.assignedBy||"—"}</td>
+                              <td style={{ ...s.td, fontSize:12, color:"#666" }}>{t.remarks||"—"}</td>
+                            </tr>
+                          ))}</tbody>
+                        </table>}
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
             </>
           )}
