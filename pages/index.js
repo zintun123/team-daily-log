@@ -202,6 +202,20 @@ export default function App() {
       return { ...t, eodPct, taskStatus };
     });
 
+    // Include tasks added during EOD (Additional Tasks) that have no morning counterpart
+    const morningKeys = new Set(activeTasks.map(t => `${t.date}|${t.taskNo}`));
+    const newTasksAddedAtEod = eodActiveRows
+      .filter(e => !morningKeys.has(`${e.date}|${e.taskNo}`))
+      .map(e => ({
+        date: e.date, taskNo: e.taskNo, taskName: e.taskName, phase: e.phase,
+        assignedBy: e.assignedBy, remarks: e.remarks,
+        pct: null,
+        eodPct: e.pct,
+        taskStatus: e.pct >= 100 ? "completed" : e.pct > 0 ? "in_progress" : "not_started"
+      }));
+
+    const allActiveTasks = [...enrichedActiveTasks, ...newTasksAddedAtEod];
+
     const pendingTasks = pendingTaskRows.map(t => {
       const eod = eodPendingRows.find(e => e.date === t.date && e.taskNo === t.taskNo);
       let resolvedStatus = "pending";
@@ -217,9 +231,9 @@ export default function App() {
       return { ...t, eodPct, eodCategory, resolvedStatus };
     });
 
-    const completed = enrichedActiveTasks.filter(t=>t.taskStatus==="completed").length;
-    const inProgress = enrichedActiveTasks.filter(t=>t.taskStatus==="in_progress").length;
-    const noEod = enrichedActiveTasks.filter(t=>t.taskStatus==="no_eod").length;
+    const completed = allActiveTasks.filter(t=>t.taskStatus==="completed").length;
+    const inProgress = allActiveTasks.filter(t=>t.taskStatus==="in_progress").length;
+    const noEod = allActiveTasks.filter(t=>t.taskStatus==="no_eod").length;
     const attendanceRows = dates.map(d => {
       const att = (attendance[d]||[]).find(a=>a.name===selectedStaff);
       return { date:d, status: att?.status||"unaccounted", timeIn: att?.timeIn||null };
@@ -228,7 +242,7 @@ export default function App() {
     const late = attendanceRows.filter(a=>a.status==="late").length;
     const absent = attendanceRows.filter(a=>a.status==="unaccounted").length;
     const pendingResolved = pendingTasks.filter(t=>t.resolvedStatus!=="pending").length;
-    return { dates, activeTasks: enrichedActiveTasks, pendingTasks, completed, inProgress, noEod, attendanceRows, onTime, late, absent, pendingResolved };
+    return { dates, activeTasks: allActiveTasks, pendingTasks, completed, inProgress, noEod, attendanceRows, onTime, late, absent, pendingResolved };
   }, [selectedStaff, rptRows, attendance]);
 
   if (view === "choose") return (
@@ -768,7 +782,7 @@ export default function App() {
                               <td style={{ ...s.td, color:"#888", fontSize:12 }}>{t.date}</td>
                               <td style={{ ...s.td, fontWeight:500 }}>{t.taskName||"—"}</td>
                               <td style={{ ...s.td, color:"#555" }}>{t.phase||"—"}</td>
-                              <td style={{ ...s.td, color:"#888" }}>{t.pct !== undefined ? t.pct+"%" : "—"}</td>
+                              <td style={{ ...s.td, color:"#888" }}>{t.pct !== undefined && t.pct !== null ? t.pct+"%" : "—"}</td>
                               <td style={{ ...s.td, fontWeight:700, color:t.eodPct>=100?"#1a7a4a":t.eodPct>0?"#b85c00":"#aaa" }}>{t.eodPct !== null ? t.eodPct+"%" : "—"}</td>
                               <td style={s.td}>{t.assignedBy||"—"}</td>
                               <td style={s.td}>
