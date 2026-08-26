@@ -1,59 +1,12 @@
-import { google } from "googleapis";
+import { createClient } from "@supabase/supabase-js";
 
-const SHEET_ID = "1OsR0vTeC0pozVXuZjNY_2DJ8Z-wE9xs6XS1X2c3nDjU";
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY
+);
+
 const CUTOFF_TIME = "10:30";
 const START_TIME = "09:00";
-
-async function getSheets() {
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-    },
-    scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
-  });
-  return google.sheets({ version: "v4", auth });
-}
-
-function normName(n) {
-  const map = {
-    "zz":"Zin Zin","zin zin":"Zin Zin",
-    "swapna":"Swapna","swapna kodukulla":"Swapna",
-    "brian keith villanueva":"Brian",
-    "laylan":"Laylan",
-    "nuraisyah":"Nuraisyah","toni angeles":"Toni",
-    "eloissa de vera":"Eloissa","kathleen":"Kathleen",
-    "lara lai":"Lara","lara":"Lara",
-  };
-  return map[n.toLowerCase()] || n;
-}
-
-function normalizeDate(d) {
-  if (!d) return "";
-  if (/^\d+(\.\d+)?$/.test(d)) {
-    const serial = parseFloat(d);
-    const epoch = new Date(1899, 11, 30);
-    const dt = new Date(epoch.getTime() + serial * 86400000);
-    const dd = String(dt.getDate()).padStart(2, "0");
-    const mm = String(dt.getMonth() + 1).padStart(2, "0");
-    const yy = dt.getFullYear();
-    return `${dd}/${mm}/${yy}`;
-  }
-  const slashParts = d.split("/");
-  if (slashParts.length === 3) {
-    const [a, b, c] = slashParts;
-    const dd = a.padStart(2, "0");
-    const mm = b.padStart(2, "0");
-    const yy = c.length === 4 ? c : `20${c}`;
-    return `${dd}/${mm}/${yy}`;
-  }
-  const isoParts = d.split("-");
-  if (isoParts.length === 3 && isoParts[0].length === 4) {
-    const [yy, mm, dd] = isoParts;
-    return `${dd.padStart(2,"0")}/${mm.padStart(2,"0")}/${yy}`;
-  }
-  return d.trim();
-}
 
 function isWeekend(dateStr) {
   const parts = dateStr.split("/");
@@ -80,20 +33,17 @@ function getAttendanceStatus(timeIn) {
 
 export default async function handler(req, res) {
   try {
-    const sheets = await getSheets();
-    const resp = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: "Sheet1!A:L",
-    });
-    const rows = (resp.data.values || []).slice(1);
-    const data = rows
-      .filter(r => r[5])
+    const { data: rows, error } = await supabase.from("daily_log").select("*");
+    if (error) throw error;
+
+    const data = (rows || [])
+      .filter(r => r.task_name)
       .map(r => ({
-        date: normalizeDate(r[0]||""), name: normName(r[1]||""), timeIn: r[2]||"", timeOut: r[3]||"",
-        taskNo: r[4]||"", taskName: r[5]||"", category: r[6]||"Active",
-        phase: r[7]||"", pct: Math.min(parseFloat(r[8])||0, 100),
-        assignedBy: r[9]||"", remarks: r[10]||"",
-        type: (r[11]||"morning").toLowerCase()
+        date: r.date, name: r.name, timeIn: r.time_in, timeOut: r.time_out,
+        taskNo: r.task_no, taskName: r.task_name, category: r.category || "Active",
+        phase: r.phase, pct: Math.min(r.pct || 0, 100),
+        assignedBy: r.assigned_by, remarks: r.remarks,
+        type: (r.type || "morning").toLowerCase()
       }))
       .filter(r => r.name && r.name.toLowerCase() !== "this is a test");
 
