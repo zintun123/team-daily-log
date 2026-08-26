@@ -13,6 +13,34 @@ async function getSheets() {
   return google.sheets({ version: "v4", auth });
 }
 
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function appendWithVerify(sheets, rows, verifyMatch) {
+  if (rows.length === 0) return true;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: SHEET_ID,
+      range: "Sheet1!A:L",
+      valueInputOption: "USER_ENTERED",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: { values: rows },
+    });
+
+    await sleep(400 + Math.random() * 400);
+
+    const check = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: "Sheet1!A:L",
+    });
+    const allRows = check.data.values || [];
+    const found = rows.every(r => allRows.some(existing => verifyMatch(existing, r)));
+
+    if (found) return true;
+    await sleep(500 + Math.random() * 500);
+  }
+  return false;
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
   const { name, date, timeOut, tasks, newTasks = [], pendingTasks = [] } = req.body;
@@ -36,13 +64,16 @@ export default async function handler(req, res) {
 
     const allRows = [...eodRows, ...newTaskRows, ...pendingEodRows];
 
-    if (allRows.length > 0) {
-      await sheets.spreadsheets.values.append({
-        spreadsheetId: SHEET_ID,
-        range: "Sheet1!A:L",
-        valueInputOption: "USER_ENTERED",
-        requestBody: { values: allRows },
-      });
+    const verifyMatch = (existingRow, sentRow) =>
+      existingRow[0] === sentRow[0] &&
+      existingRow[1] === sentRow[1] &&
+      existingRow[4] === String(sentRow[4]) &&
+      existingRow[11] === sentRow[11];
+
+    const ok = await appendWithVerify(sheets, allRows, verifyMatch);
+
+    if (!ok) {
+      return res.status(500).json({ error: "Could not confirm save. Please try again.", ok: false });
     }
 
     res.status(200).json({ ok: true, appended: allRows.length });
