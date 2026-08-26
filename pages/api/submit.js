@@ -1,76 +1,32 @@
-import { google } from "googleapis";
+import { createClient } from "@supabase/supabase-js";
 
-const SHEET_ID = "1OsR0vTeC0pozVXuZjNY_2DJ8Z-wE9xs6XS1X2c3nDjU";
-
-async function getSheets() {
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-    },
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-  });
-  return google.sheets({ version: "v4", auth });
-}
-
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-async function appendWithVerify(sheets, rows, verifyMatch) {
-  if (rows.length === 0) return true;
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: SHEET_ID,
-      range: "Sheet1!A:L",
-      valueInputOption: "USER_ENTERED",
-      insertDataOption: "INSERT_ROWS",
-      requestBody: { values: rows },
-    });
-
-    await sleep(400 + Math.random() * 400);
-
-    const check = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: "Sheet1!A:L",
-    });
-    const allRows = check.data.values || [];
-    const found = rows.every(r => allRows.some(existing => verifyMatch(existing, r)));
-
-    if (found) return true;
-    await sleep(500 + Math.random() * 500);
-  }
-  return false;
-}
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY
+);
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).end();
   const { name, date, timeIn, timeOut, tasks, pendingTasks = [] } = req.body;
   try {
-    const sheets = await getSheets();
-    const activeRows = tasks.map((t, i) => [
-      date, name, timeIn, timeOut || "",
-      i + 1, t.name, t.category, t.phase, t.pct, t.assignedBy, t.remarks, "morning"
-    ]);
-    const pendingRows = pendingTasks.map((t, i) => [
-      date, name, timeIn, timeOut || "",
-      i + 1, t.name, t.category, t.phase, t.pct, t.assignedBy, t.remarks, "morning-pending"
-    ]);
+    const activeRows = tasks.map((t, i) => ({
+      date, name, time_in: timeIn, time_out: timeOut || "",
+      task_no: i + 1, task_name: t.name, category: t.category, phase: t.phase,
+      pct: t.pct === "" ? null : t.pct, assigned_by: t.assignedBy, remarks: t.remarks,
+      type: "morning"
+    }));
+    const pendingRows = pendingTasks.map((t, i) => ({
+      date, name, time_in: timeIn, time_out: timeOut || "",
+      task_no: i + 1, task_name: t.name, category: t.category, phase: t.phase,
+      pct: t.pct === "" ? null : t.pct, assigned_by: t.assignedBy, remarks: t.remarks,
+      type: "morning-pending"
+    }));
     const allRows = [...activeRows, ...pendingRows];
 
-    if (allRows.length === 0) {
-      return res.status(200).json({ ok: true, saved: 0 });
-    }
+    if (allRows.length === 0) return res.status(200).json({ ok: true, saved: 0 });
 
-    const verifyMatch = (existingRow, sentRow) =>
-      existingRow[0] === sentRow[0] &&
-      existingRow[1] === sentRow[1] &&
-      existingRow[4] === String(sentRow[4]) &&
-      existingRow[11] === sentRow[11];
-
-    const ok = await appendWithVerify(sheets, allRows, verifyMatch);
-
-    if (!ok) {
-      return res.status(500).json({ error: "Could not confirm save. Please try again.", ok: false });
-    }
+    const { error } = await supabase.from("daily_log").insert(allRows);
+    if (error) throw error;
 
     res.status(200).json({ ok: true, saved: allRows.length });
   } catch (e) {
