@@ -1,75 +1,37 @@
-import { google } from "googleapis";
+import { createClient } from "@supabase/supabase-js";
 
-const SHEET_ID = "1OsR0vTeC0pozVXuZjNY_2DJ8Z-wE9xs6XS1X2c3nDjU";
-
-async function getSheets() {
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, "\n"),
-    },
-    scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"],
-  });
-  return google.sheets({ version: "v4", auth });
-}
-
-function normalizeDate(d) {
-  if (!d) return "";
-  if (/^\d+(\.\d+)?$/.test(d)) {
-    const serial = parseFloat(d);
-    const epoch = new Date(1899, 11, 30);
-    const dt = new Date(epoch.getTime() + serial * 86400000);
-    const dd = String(dt.getDate()).padStart(2, "0");
-    const mm = String(dt.getMonth() + 1).padStart(2, "0");
-    const yy = dt.getFullYear();
-    return `${dd}/${mm}/${yy}`;
-  }
-  const slashParts = d.split("/");
-  if (slashParts.length === 3) {
-    const [a, b, c] = slashParts;
-    const dd = a.padStart(2, "0");
-    const mm = b.padStart(2, "0");
-    const yy = c.length === 4 ? c : `20${c}`;
-    return `${dd}/${mm}/${yy}`;
-  }
-  const isoParts = d.split("-");
-  if (isoParts.length === 3 && isoParts[0].length === 4) {
-    const [yy, mm, dd] = isoParts;
-    return `${dd.padStart(2,"0")}/${mm.padStart(2,"0")}/${yy}`;
-  }
-  return d.trim();
-}
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY
+);
 
 export default async function handler(req, res) {
   const { date } = req.query;
-  const targetDate = normalizeDate(date);
   try {
-    const sheets = await getSheets();
-    const resp = await sheets.spreadsheets.values.get({
-      spreadsheetId: SHEET_ID,
-      range: "Sheet1!A:L",
-    });
-    const rows = (resp.data.values || []).slice(1).filter(r => normalizeDate(r[0]) === targetDate);
+    const { data: rows, error } = await supabase
+      .from("daily_log")
+      .select("*")
+      .eq("date", date);
+    if (error) throw error;
 
     const map = {};
-    for (const r of rows) {
-      const [rowDate, name, timeIn, timeOut, taskNo, taskName, category, phase, pct, assignedBy, remarks, type] = r;
-      const rowType = (type || "morning").toLowerCase();
+    for (const r of rows || []) {
+      const rowType = (r.type || "morning").toLowerCase();
       const isPending = rowType.includes("pending");
       const isEod = rowType.includes("eod");
 
-      if (!map[name]) map[name] = { name, timeIn: "", timeOut: "", tasks: {}, pendingTasks: {} };
+      if (!map[r.name]) map[r.name] = { name: r.name, timeIn: "", timeOut: "", tasks: {}, pendingTasks: {} };
 
-      if (!isEod && timeIn) map[name].timeIn = timeIn;
-      if (isEod && timeOut) map[name].timeOut = timeOut;
+      if (!isEod && r.time_in) map[r.name].timeIn = r.time_in;
+      if (isEod && r.time_out) map[r.name].timeOut = r.time_out;
 
-      const bucket = isPending ? map[name].pendingTasks : map[name].tasks;
-      const key = taskNo || taskName;
+      const bucket = isPending ? map[r.name].pendingTasks : map[r.name].tasks;
+      const key = r.task_no || r.task_name;
 
       if (!bucket[key]) {
         bucket[key] = {
-          taskNo, name: taskName, category, phase,
-          assignedBy, remarks,
+          taskNo: r.task_no, name: r.task_name, category: r.category, phase: r.phase,
+          assignedBy: r.assigned_by, remarks: r.remarks,
           morningPct: null, eodPct: null,
           morningRemarks: null, eodRemarks: null,
           morningCategory: null, eodCategory: null,
@@ -78,17 +40,17 @@ export default async function handler(req, res) {
 
       const task = bucket[key];
       if (!isEod) {
-        task.morningPct = pct !== "" ? parseFloat(pct) : null;
-        task.morningRemarks = remarks;
-        task.morningCategory = category;
-        task.name = taskName;
-        task.phase = phase;
-        task.assignedBy = assignedBy;
+        task.morningPct = r.pct !== null ? r.pct : null;
+        task.morningRemarks = r.remarks;
+        task.morningCategory = r.category;
+        task.name = r.task_name;
+        task.phase = r.phase;
+        task.assignedBy = r.assigned_by;
       } else {
-        task.eodPct = pct !== "" ? parseFloat(pct) : null;
-        task.eodRemarks = remarks;
-        task.eodCategory = category;
-        if (taskName) task.name = taskName;
+        task.eodPct = r.pct !== null ? r.pct : null;
+        task.eodRemarks = r.remarks;
+        task.eodCategory = r.category;
+        if (r.task_name) task.name = r.task_name;
       }
     }
 
