@@ -28,8 +28,37 @@ function normName(n) {
   return map[n.toLowerCase()] || n;
 }
 
+function normalizeDate(d) {
+  if (!d) return "";
+  if (/^\d+(\.\d+)?$/.test(d)) {
+    const serial = parseFloat(d);
+    const epoch = new Date(1899, 11, 30);
+    const dt = new Date(epoch.getTime() + serial * 86400000);
+    const dd = String(dt.getDate()).padStart(2, "0");
+    const mm = String(dt.getMonth() + 1).padStart(2, "0");
+    const yy = dt.getFullYear();
+    return `${dd}/${mm}/${yy}`;
+  }
+  const slashParts = d.split("/");
+  if (slashParts.length === 3) {
+    const [a, b, c] = slashParts;
+    const dd = a.padStart(2, "0");
+    const mm = b.padStart(2, "0");
+    const yy = c.length === 4 ? c : `20${c}`;
+    return `${dd}/${mm}/${yy}`;
+  }
+  const isoParts = d.split("-");
+  if (isoParts.length === 3 && isoParts[0].length === 4) {
+    const [yy, mm, dd] = isoParts;
+    return `${dd.padStart(2,"0")}/${mm.padStart(2,"0")}/${yy}`;
+  }
+  return d.trim();
+}
+
 function isWeekend(dateStr) {
-  const [dd, mm, yy] = dateStr.split("/");
+  const parts = dateStr.split("/");
+  if (parts.length !== 3) return false;
+  const [dd, mm, yy] = parts;
   const day = new Date(`${yy}-${mm}-${dd}`).getDay();
   return day === 0 || day === 6;
 }
@@ -60,7 +89,7 @@ export default async function handler(req, res) {
     const data = rows
       .filter(r => r[5])
       .map(r => ({
-        date: r[0]||"", name: normName(r[1]||""), timeIn: r[2]||"", timeOut: r[3]||"",
+        date: normalizeDate(r[0]||""), name: normName(r[1]||""), timeIn: r[2]||"", timeOut: r[3]||"",
         taskNo: r[4]||"", taskName: r[5]||"", category: r[6]||"Active",
         phase: r[7]||"", pct: Math.min(parseFloat(r[8])||0, 100),
         assignedBy: r[9]||"", remarks: r[10]||"",
