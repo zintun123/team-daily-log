@@ -91,13 +91,31 @@ export default function App() {
     else setPwError("Incorrect password.");
   };
 
+  const isTaskBlank = (t) => !t.name.trim() && !t.phase.trim() && !String(t.pct).trim() && !t.remarks.trim();
+
+  const validateTasks = (list, label) => {
+    const nonBlank = list.filter(t => !isTaskBlank(t));
+    const missingName = nonBlank.filter(t => !t.name.trim());
+    if (missingName.length > 0) {
+      return { ok: false, error: `Please enter a Task Name for every ${label} task you've started filling in.` };
+    }
+    return { ok: true, cleaned: nonBlank };
+  };
+
   const handleMorningSubmit = async () => {
     if (!name.trim()) { setError("Please enter your name."); return; }
     if (!timeIn) { setError("Please log your time in."); return; }
+    const activeCheck = validateTasks(tasks, "Active");
+    if (!activeCheck.ok) { setError(activeCheck.error); return; }
+    const pendingCheck = validateTasks(pendingTasks, "Pending");
+    if (!pendingCheck.ok) { setError(pendingCheck.error); return; }
+    if (activeCheck.cleaned.length === 0 && pendingCheck.cleaned.length === 0) {
+      setError("Please add at least one task before submitting."); return;
+    }
     setError(""); setSaving(true);
     try {
       const res = await fetch("/api/submit", { method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ name:name.trim(), date, timeIn, timeOut:"", tasks, pendingTasks }) });
+        body: JSON.stringify({ name:name.trim(), date, timeIn, timeOut:"", tasks: activeCheck.cleaned, pendingTasks: pendingCheck.cleaned }) });
       if (!res.ok) throw new Error();
       setSaved(true);
     } catch { setError("Could not save. Please try again."); }
@@ -124,10 +142,12 @@ export default function App() {
 
   const handleEodSubmit = async () => {
     if (!eodTimeOut) { setEodError("Please enter your time out."); return; }
+    const newTaskCheck = validateTasks(eodNewTasks, "new");
+    if (!newTaskCheck.ok) { setEodError(newTaskCheck.error); return; }
     setEodError(""); setEodSaving(true);
     try {
       const res = await fetch("/api/update", { method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ name:eodFound.name, date:todayStr(), timeOut:eodTimeOut, tasks:eodTasks, newTasks:eodNewTasks, pendingTasks:eodPendingTasks }) });
+        body: JSON.stringify({ name:eodFound.name, date:todayStr(), timeOut:eodTimeOut, tasks:eodTasks, newTasks:newTaskCheck.cleaned, pendingTasks:eodPendingTasks }) });
       if (!res.ok) throw new Error();
       setEodSaved(true);
     } catch { setEodError("Could not save. Please try again."); }
@@ -202,7 +222,6 @@ export default function App() {
       return { ...t, eodPct, taskStatus };
     });
 
-    // Include tasks added during EOD (Additional Tasks) that have no morning counterpart
     const morningKeys = new Set(activeTasks.map(t => `${t.date}|${t.taskNo}`));
     const newTasksAddedAtEod = eodActiveRows
       .filter(e => !morningKeys.has(`${e.date}|${e.taskNo}`))
@@ -458,7 +477,6 @@ export default function App() {
           <div style={{ padding:"16px 24px 0", display:"flex", gap:12, alignItems:"flex-end", flexWrap:"wrap" }}>
             <div><label style={s.label}>Date (DD/MM/YYYY)</label><input style={{ ...s.input, width:160 }} value={filterDate} onChange={e => setFilterDate(e.target.value)} /></div>
             <button style={s.btn()} onClick={loadEntries}>{loading ? <><Spinner />Loading...</> : "Load"}</button>
-            <a href="https://docs.google.com/spreadsheets/d/1OsR0vTeC0pozVXuZjNY_2DJ8Z-wE9xs6XS1X2c3nDjU" target="_blank" rel="noreferrer" style={{ ...s.btn("#34a853"), textDecoration:"none", display:"inline-flex", alignItems:"center" }}>📊 Open Sheet</a>
           </div>
           {mgrError && <div style={{ ...s.card, background:"#fff0f0", color:"#c0392b" }}>{mgrError}</div>}
           {!loading && entries.length === 0 && <div style={{ ...s.card, color:"#999", textAlign:"center", padding:"40px" }}>No entries found for {filterDate}.</div>}
