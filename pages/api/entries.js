@@ -13,15 +13,43 @@ async function getSheets() {
   return google.sheets({ version: "v4", auth });
 }
 
+function normalizeDate(d) {
+  if (!d) return "";
+  if (/^\d+(\.\d+)?$/.test(d)) {
+    const serial = parseFloat(d);
+    const epoch = new Date(1899, 11, 30);
+    const dt = new Date(epoch.getTime() + serial * 86400000);
+    const dd = String(dt.getDate()).padStart(2, "0");
+    const mm = String(dt.getMonth() + 1).padStart(2, "0");
+    const yy = dt.getFullYear();
+    return `${dd}/${mm}/${yy}`;
+  }
+  const slashParts = d.split("/");
+  if (slashParts.length === 3) {
+    const [a, b, c] = slashParts;
+    const dd = a.padStart(2, "0");
+    const mm = b.padStart(2, "0");
+    const yy = c.length === 4 ? c : `20${c}`;
+    return `${dd}/${mm}/${yy}`;
+  }
+  const isoParts = d.split("-");
+  if (isoParts.length === 3 && isoParts[0].length === 4) {
+    const [yy, mm, dd] = isoParts;
+    return `${dd.padStart(2,"0")}/${mm.padStart(2,"0")}/${yy}`;
+  }
+  return d.trim();
+}
+
 export default async function handler(req, res) {
   const { date } = req.query;
+  const targetDate = normalizeDate(date);
   try {
     const sheets = await getSheets();
     const resp = await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
       range: "Sheet1!A:L",
     });
-    const rows = (resp.data.values || []).slice(1).filter(r => r[0] === date);
+    const rows = (resp.data.values || []).slice(1).filter(r => normalizeDate(r[0]) === targetDate);
 
     const map = {};
     for (const r of rows) {
