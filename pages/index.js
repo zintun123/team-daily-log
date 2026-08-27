@@ -45,6 +45,8 @@ export default function App() {
   const [timeIn, setTimeIn] = useState("");
   const [tasks, setTasks] = useState([emptyTask()]);
   const [pendingTasks, setPendingTasks] = useState([emptyPending()]);
+  const [carryoverLoading, setCarryoverLoading] = useState(false);
+  const [carryoverInfo, setCarryoverInfo] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -92,6 +94,31 @@ export default function App() {
   };
 
   const isTaskBlank = (t) => !t.name.trim() && !t.phase.trim() && !String(t.pct).trim() && !t.remarks.trim();
+
+  const loadCarryover = async () => {
+    if (!name.trim()) { setError("Please enter your name first."); return; }
+    setError(""); setCarryoverLoading(true); setCarryoverInfo(null);
+    try {
+      const res = await fetch(`/api/carryover?name=${encodeURIComponent(name.trim())}`);
+      const data = await res.json();
+      if (!data.fromDate) {
+        setCarryoverInfo({ found: false });
+      } else if (data.activeTasks.length === 0 && data.pendingTasks.length === 0) {
+        setCarryoverInfo({ found: true, fromDate: data.fromDate, empty: true });
+      } else {
+        setTasks(t => {
+          const nonBlank = t.filter(x => !isTaskBlank(x));
+          return [...nonBlank, ...data.activeTasks];
+        });
+        setPendingTasks(t => {
+          const nonBlank = t.filter(x => !isTaskBlank(x));
+          return [...nonBlank, ...data.pendingTasks];
+        });
+        setCarryoverInfo({ found: true, fromDate: data.fromDate, count: data.activeTasks.length + data.pendingTasks.length });
+      }
+    } catch { setError("Could not load previous tasks. Please try again."); }
+    setCarryoverLoading(false);
+  };
 
   const validateTasks = (list, label) => {
     const nonBlank = list.filter(t => !isTaskBlank(t));
@@ -289,14 +316,14 @@ export default function App() {
           <div style={{ fontSize:48, marginBottom:12 }}>✅</div>
           <div style={{ fontSize:20, fontWeight:700, color:"#1a7a4a" }}>Morning log submitted!</div>
           <div style={{ color:"#666", marginTop:8 }}>Come back at end of day to update your time out and task progress.</div>
-          <button style={{ ...s.btn(), marginTop:24 }} onClick={() => { setSaved(false); setName(""); setTimeIn(""); setTasks([emptyTask()]); setPendingTasks([emptyPending()]); }}>Submit Another</button>
+          <button style={{ ...s.btn(), marginTop:24 }} onClick={() => { setSaved(false); setName(""); setTimeIn(""); setTasks([emptyTask()]); setPendingTasks([emptyPending()]); setCarryoverInfo(null); }}>Submit Another</button>
         </div>
       ) : (
         <div style={s.card}>
           <div style={{ fontSize:17, fontWeight:700, color:"#1a3a5c", marginBottom:4 }}>Morning Log — {date}</div>
           <div style={{ fontSize:12, color:"#aaa", marginBottom:18 }}>Fill this in when you start your day</div>
           {error && <div style={{ background:"#fff0f0", color:"#c0392b", borderRadius:7, padding:"9px 14px", marginBottom:14, fontSize:13 }}>{error}</div>}
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:20 }}>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:14, marginBottom:12 }}>
             <div><label style={s.label}>Your Name *</label><input style={s.input} value={name} onChange={e => setName(e.target.value)} placeholder="Type your name" /></div>
             <div><label style={s.label}>Date</label><input style={{ ...s.input, background:"#f4f6fb" }} value={date} readOnly /></div>
             <div style={{ gridColumn:"1 / -1" }}>
@@ -307,6 +334,21 @@ export default function App() {
               </div>
             </div>
           </div>
+
+          <button style={{ ...s.btn("#1a5ca8"), width:"100%", marginBottom:8 }} onClick={loadCarryover} disabled={carryoverLoading}>
+            {carryoverLoading ? <><Spinner />Checking...</> : "↻ Load My Unfinished Tasks From Last Time"}
+          </button>
+          {carryoverInfo && carryoverInfo.found === false && (
+            <div style={{ fontSize:12, color:"#aaa", marginBottom:16, textAlign:"center" }}>No previous submissions found for this name.</div>
+          )}
+          {carryoverInfo && carryoverInfo.empty && (
+            <div style={{ fontSize:12, color:"#1a7a4a", marginBottom:16, textAlign:"center" }}>Nice — everything from {carryoverInfo.fromDate} was completed!</div>
+          )}
+          {carryoverInfo && carryoverInfo.count > 0 && (
+            <div style={{ fontSize:12, color:"#1a5ca8", marginBottom:16, textAlign:"center" }}>Loaded {carryoverInfo.count} unfinished task(s) from {carryoverInfo.fromDate} — update the % below.</div>
+          )}
+          <div style={{ marginBottom:20 }} />
+
           <div style={{ fontSize:15, fontWeight:700, color:"#1a3a5c", marginBottom:4 }}>Tasks for Today</div>
           <div style={{ fontSize:12, color:"#aaa", marginBottom:12 }}>Active tasks you are working on today</div>
           {tasks.map((t, i) => (
