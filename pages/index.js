@@ -73,6 +73,9 @@ export default function App() {
   const [rptDate, setRptDate] = useState("daily");
   const [attendance, setAttendance] = useState({});
   const [knownStaff, setKnownStaff] = useState([]);
+  const [activeSummary, setActiveSummary] = useState([]);
+  const [pendingSummary, setPendingSummary] = useState([]);
+  const [stillPending, setStillPending] = useState([]);
   const [cutoff, setCutoff] = useState("10:30");
   const [startTime, setStartTime] = useState("09:00");
   const [selectedStaff, setSelectedStaff] = useState("");
@@ -199,6 +202,9 @@ export default function App() {
       setRptRows(data.rows||[]);
       setAttendance(data.attendance||{});
       setKnownStaff(data.knownStaff||[]);
+      setActiveSummary(data.activeSummary||[]);
+      setPendingSummary(data.pendingSummary||[]);
+      setStillPending(data.stillPending||[]);
       setCutoff(data.cutoff||"10:30");
       setStartTime(data.startTime||"09:00");
     } catch {}
@@ -212,16 +218,26 @@ export default function App() {
 
   const byPerson = useMemo(() => {
     const m = {};
-    for (const r of rptRows.filter(r=>r.type==="morning")) {
-      if (!m[r.name]) m[r.name] = { name:r.name, tasks:[], days:new Set() };
-      m[r.name].tasks.push(r); m[r.name].days.add(r.date);
+    for (const t of activeSummary) {
+      if (!m[t.name]) m[t.name] = { name:t.name, tasks:[], days:new Set() };
+      m[t.name].tasks.push(t); m[t.name].days.add(t.date);
     }
     return Object.values(m).sort((a,b)=>b.tasks.length-a.tasks.length);
-  }, [rptRows]);
+  }, [activeSummary]);
 
-  const catCounts = useMemo(() => rptRows.filter(r=>r.type==="morning").reduce((m,r)=>{ m[r.category]=(m[r.category]||0)+1; return m; }, {}), [rptRows]);
-  const stuckTasks = useMemo(() => rptRows.filter(r=>r.type==="morning"&&r.pct===0&&r.taskName), [rptRows]);
-  const pendingFeedback = useMemo(() => rptRows.filter(r=>r.type==="morning-pending"&&r.taskName), [rptRows]);
+  const pendingByPerson = useMemo(() => {
+    const m = {};
+    for (const t of stillPending) m[t.name] = (m[t.name]||0) + 1;
+    return m;
+  }, [stillPending]);
+
+  const catCounts = useMemo(() => {
+    const m = { Active: activeSummary.length };
+    for (const t of stillPending) m[t.finalCategory] = (m[t.finalCategory]||0) + 1;
+    return m;
+  }, [activeSummary, stillPending]);
+  const stuckTasks = useMemo(() => activeSummary.filter(t=>t.finalPct===0&&t.status!=="no_eod"), [activeSummary]);
+  const pendingFeedback = useMemo(() => stillPending, [stillPending]);
   const staffList = useMemo(() => [...new Set(rptRows.map(r=>r.name))].sort(), [rptRows]);
 
   const staffReport = useMemo(() => {
@@ -604,21 +620,28 @@ export default function App() {
                 const present = todayAttendance.filter(a=>a.status==="present");
                 const late = todayAttendance.filter(a=>a.status==="late");
                 const unaccounted = todayAttendance.filter(a=>a.status==="unaccounted");
-                const todayPeople = (() => {
-                  const rows = rptRows.filter(r=>r.date===latestDate&&r.type==="morning");
-                  const m = {};
-                  for (const r of rows) {
-                    if (!m[r.name]) m[r.name] = { name:r.name, timeIn:r.timeIn, tasks:[] };
-                    if (r.taskName) m[r.name].tasks.push(r);
-                  }
-                  return Object.values(m);
-                })();
+                const todayActive = activeSummary.filter(t=>t.date===latestDate);
+                const todayPending = pendingSummary.filter(t=>t.date===latestDate);
+                const namesToday = [...new Set([...todayActive.map(t=>t.name), ...todayPending.map(t=>t.name)])];
+                const todayPeople = namesToday.map(nm => {
+                  const att = todayAttendance.find(a=>a.name===nm);
+                  const myActive = todayActive.filter(t=>t.name===nm);
+                  const myPending = todayPending.filter(t=>t.name===nm);
+                  return {
+                    name: nm,
+                    timeIn: att?.timeIn || myActive[0]?.timeIn || "—",
+                    completed: myActive.filter(t=>t.status==="completed"),
+                    inProgress: myActive.filter(t=>t.status==="in_progress"),
+                    notStarted: myActive.filter(t=>t.status==="not_started"||t.status==="no_eod"),
+                    pending: myPending.filter(t=>t.resolvedStatus==="pending"),
+                  };
+                });
                 return (
                   <>
                     <div style={{ padding:"12px 24px 4px", fontSize:12, color:"#888" }}>Latest: <b>{latestDate}</b> | Start time: <b>{startTime} AM</b> | Unaccounted after: <b>{cutoff} AM</b> | Tracking <b>{knownStaff.length}</b> staff (Mon–Fri)</div>
                     <div style={{ display:"flex", gap:12, padding:"8px 24px 12px", flexWrap:"wrap" }}>
                       {[["#1a7a4a",present.length,"✅ On Time"],["#b85c00",late.length,"🕐 Late"],["#c0392b",unaccounted.length,"🔴 Unaccounted"],
-                        ["#1a3a5c",rptRows.filter(r=>r.date===latestDate&&r.type==="morning"&&r.pct>=100).length,"Tasks Done"]
+                        ["#1a3a5c",todayActive.filter(t=>t.status==="completed").length,"Tasks Done"]
                       ].map(([c,n,l])=>(
                         <div key={l} style={s.statCard(c)}><div style={{ fontSize:28, fontWeight:800 }}>{n}</div><div style={{ fontSize:12, opacity:0.85 }}>{l}</div></div>
                       ))}
@@ -640,24 +663,36 @@ export default function App() {
                         ))}</tbody>
                       </table>
                     </div>
+                    <div style={{ fontSize:15, fontWeight:700, color:"#1a3a5c", margin:"8px 24px" }}>Today's Progress — At a Glance</div>
+                    {todayPeople.length === 0 && <div style={{ ...s.card, color:"#aaa", textAlign:"center" }}>No submissions yet for {latestDate}.</div>}
                     {todayPeople.map((p,i)=>(
                       <div key={i} style={s.card}>
-                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
                           <span style={{ fontSize:15, fontWeight:700, color:"#1a3a5c" }}>{p.name}</span>
-                          <span style={{ fontSize:12, color:"#666", background:"#f0f4fa", borderRadius:8, padding:"3px 10px" }}>🕐 In: <b>{p.timeIn||"—"}</b></span>
+                          <span style={{ fontSize:12, color:"#666", background:"#f0f4fa", borderRadius:8, padding:"3px 10px" }}>🕐 {p.timeIn}</span>
                         </div>
-                        <table style={{ width:"100%", borderCollapse:"collapse" }}>
-                          <thead><tr>{["Task","Phase","%","By","Remarks"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
-                          <tbody>{p.tasks.map((t,j)=>(
-                            <tr key={j}>
-                              <td style={s.td}>{t.taskName}</td>
-                              <td style={{ ...s.td, color:"#555" }}>{t.phase||"—"}</td>
-                              <td style={{ ...s.td, fontWeight:700, color:t.pct>=100?"#1a7a4a":t.pct>0?"#b85c00":"#aaa" }}>{t.pct}%</td>
-                              <td style={s.td}>{t.assignedBy||"—"}</td>
-                              <td style={{ ...s.td, fontSize:12, color:"#666" }}>{t.remarks||"—"}</td>
-                            </tr>
-                          ))}</tbody>
-                        </table>
+                        <div style={{ display:"flex", gap:20, flexWrap:"wrap" }}>
+                          <div style={{ minWidth:180 }}>
+                            <div style={{ fontSize:12, fontWeight:700, color:"#1a7a4a", marginBottom:4 }}>✅ Completed ({p.completed.length})</div>
+                            {p.completed.length===0 ? <div style={{ fontSize:12, color:"#ccc" }}>—</div> :
+                              p.completed.map((t,j)=><div key={j} style={{ fontSize:12, color:"#444" }}>• {t.taskName}</div>)}
+                          </div>
+                          <div style={{ minWidth:180 }}>
+                            <div style={{ fontSize:12, fontWeight:700, color:"#b85c00", marginBottom:4 }}>🔄 In Progress ({p.inProgress.length})</div>
+                            {p.inProgress.length===0 ? <div style={{ fontSize:12, color:"#ccc" }}>—</div> :
+                              p.inProgress.map((t,j)=><div key={j} style={{ fontSize:12, color:"#444" }}>• {t.taskName} ({t.finalPct}%)</div>)}
+                          </div>
+                          <div style={{ minWidth:180 }}>
+                            <div style={{ fontSize:12, fontWeight:700, color:"#888", marginBottom:4 }}>⏳ Not Started ({p.notStarted.length})</div>
+                            {p.notStarted.length===0 ? <div style={{ fontSize:12, color:"#ccc" }}>—</div> :
+                              p.notStarted.map((t,j)=><div key={j} style={{ fontSize:12, color:"#444" }}>• {t.taskName}</div>)}
+                          </div>
+                          <div style={{ minWidth:180 }}>
+                            <div style={{ fontSize:12, fontWeight:700, color:"#7a1a8a", marginBottom:4 }}>🟣 Pending ({p.pending.length})</div>
+                            {p.pending.length===0 ? <div style={{ fontSize:12, color:"#ccc" }}>—</div> :
+                              p.pending.map((t,j)=><div key={j} style={{ fontSize:12, color:"#444" }}>• {t.taskName}</div>)}
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </>
@@ -671,9 +706,9 @@ export default function App() {
                     <table style={{ width:"100%", borderCollapse:"collapse" }}>
                       <thead><tr>{["Name","Days","Active Tasks","Pending Tasks","Avg/Day","Done","In Progress"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
                       <tbody>{byPerson.map((p,i)=>{
-                        const pendCount = rptRows.filter(r=>r.name===p.name&&r.type==="morning-pending").length;
-                        const comp=p.tasks.filter(t=>t.pct>=100).length;
-                        const inProg=p.tasks.filter(t=>t.pct>0&&t.pct<100).length;
+                        const pendCount = pendingByPerson[p.name] || 0;
+                        const comp=p.tasks.filter(t=>t.status==="completed").length;
+                        const inProg=p.tasks.filter(t=>t.status==="in_progress").length;
                         const color=p.tasks.length>15?"#c0392b":p.tasks.length>8?"#b85c00":"#1a7a4a";
                         return <tr key={i}>
                           <td style={{ ...s.td, fontWeight:600 }}>{p.name}</td>
@@ -689,7 +724,7 @@ export default function App() {
                   </div>
                   <div style={s.card}>
                     <div style={{ fontWeight:700, color:"#1a3a5c", marginBottom:16 }}>Tasks by Assigner</div>
-                    {Object.entries(rptRows.filter(r=>r.type==="morning").reduce((m,r)=>{ const k=r.assignedBy||"Unassigned"; m[k]=(m[k]||0)+1; return m; },{}))
+                    {Object.entries(activeSummary.reduce((m,r)=>{ const k=r.assignedBy||"Unassigned"; m[k]=(m[k]||0)+1; return m; },{}))
                       .sort((a,b)=>b[1]-a[1]).map(([k,v],i)=>(
                       <div key={i} style={{ display:"flex", alignItems:"center", gap:12, marginBottom:10 }}>
                         <div style={{ width:100, fontSize:13, fontWeight:600 }}>{k}</div>
@@ -711,8 +746,8 @@ export default function App() {
                     ))}
                   </div>
                   <div style={s.card}>
-                    <div style={{ fontWeight:700, color:"#7a1a8a", marginBottom:12 }}>⏳ Tasks Pending Feedback ({pendingFeedback.length})</div>
-                    {pendingFeedback.length===0?<div style={{ color:"#aaa" }}>None</div>:
+                    <div style={{ fontWeight:700, color:"#7a1a8a", marginBottom:12 }}>⏳ Tasks Still Pending Feedback ({pendingFeedback.length})</div>
+                    {pendingFeedback.length===0?<div style={{ color:"#aaa" }}>None — everything pending has been resolved</div>:
                     <table style={{ width:"100%", borderCollapse:"collapse" }}>
                       <thead><tr>{["Date","Who","Task","Phase","%","By","Remarks"].map(h=><th key={h} style={s.th}>{h}</th>)}</tr></thead>
                       <tbody>{pendingFeedback.map((t,i)=><tr key={i}>
@@ -720,7 +755,7 @@ export default function App() {
                         <td style={{ ...s.td, fontWeight:600 }}>{t.name}</td>
                         <td style={s.td}>{t.taskName}</td>
                         <td style={s.td}>{t.phase||"—"}</td>
-                        <td style={{ ...s.td, fontWeight:700 }}>{t.pct}%</td>
+                        <td style={{ ...s.td, fontWeight:700 }}>{t.finalPct}%</td>
                         <td style={s.td}>{t.assignedBy||"—"}</td>
                         <td style={{ ...s.td, fontSize:12, color:"#666" }}>{t.remarks||"—"}</td>
                       </tr>)}</tbody>
@@ -744,10 +779,10 @@ export default function App() {
               {rptDate === "monthly" && (
                 <>
                   <div style={{ display:"flex", gap:12, padding:"12px 24px", flexWrap:"wrap" }}>
-                    {[["#1a3a5c",byPerson.reduce((s,p)=>s+p.tasks.length,0),"Total Active Tasks"],
-                      ["#7a1a8a",rptRows.filter(r=>r.type==="morning-pending").length,"Total Pending Tasks"],
-                      ["#1a7a4a",byPerson.reduce((s,p)=>s+p.tasks.filter(t=>t.pct>=100).length,0),"Completed"],
-                      ["#c0392b",byPerson.reduce((s,p)=>s+p.tasks.filter(t=>t.pct===0).length,0),"Not Started"]
+                    {[["#1a3a5c",activeSummary.length,"Total Active Tasks"],
+                      ["#7a1a8a",stillPending.length,"Still Pending"],
+                      ["#1a7a4a",activeSummary.filter(t=>t.status==="completed").length,"Completed"],
+                      ["#c0392b",activeSummary.filter(t=>t.status==="not_started").length,"Not Started"]
                     ].map(([c,n,l])=>(
                       <div key={l} style={s.statCard(c)}><div style={{ fontSize:28, fontWeight:800 }}>{n}</div><div style={{ fontSize:12, opacity:0.85 }}>{l}</div></div>
                     ))}
@@ -755,7 +790,7 @@ export default function App() {
                   <div style={s.card}>
                     <div style={{ fontWeight:700, color:"#1a3a5c", marginBottom:16 }}>Completion Rate by Person</div>
                     {byPerson.map((p,i)=>{
-                      const comp=p.tasks.filter(t=>t.pct>=100).length;
+                      const comp=p.tasks.filter(t=>t.status==="completed").length;
                       const rate=p.tasks.length>0?Math.round(comp/p.tasks.length*100):0;
                       const color=rate>=75?"#1a7a4a":rate>=50?"#b85c00":"#c0392b";
                       return <div key={i} style={{ marginBottom:14 }}>
