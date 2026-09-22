@@ -197,7 +197,7 @@ export default function App() {
   const loadReports = async () => {
     setRptLoading(true);
     try {
-      const res = await fetch("/api/reports");
+      const res = await fetch("/api/reports", { cache: "no-store" });
       const data = await res.json();
       setRptRows(data.rows||[]);
       setAttendance(data.attendance||{});
