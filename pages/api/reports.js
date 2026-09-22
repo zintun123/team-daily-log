@@ -54,7 +54,7 @@ function getAttendanceStatus(timeIn) {
 
 export default async function handler(req, res) {
   try {
-    const { data: rows, error } = await supabase.from("daily_log").select("*");
+    const { data: rows, error } = await supabase.from("daily_log").select("*").order("id", { ascending: true }).range(0, 49999);
     if (error) throw error;
 
     const data = (rows || [])
