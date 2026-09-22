@@ -52,13 +52,30 @@ function getAttendanceStatus(timeIn) {
   return t <= startMins ? "present" : "late";
 }
 
+async function fetchAllRows() {
+  const pageSize = 1000;
+  let allRows = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("daily_log")
+      .select("*")
+      .order("id", { ascending: true })
+      .range(offset, offset + pageSize - 1);
+    if (error) throw error;
+    allRows = allRows.concat(data || []);
+    if (!data || data.length < pageSize) break;
+    offset += pageSize;
+  }
+  return allRows;
+}
+
 export default async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
   try {
-    const { data: rows, error } = await supabase.from("daily_log").select("*").order("id", { ascending: true }).range(0, 49999);
-    if (error) throw error;
+    const rows = await fetchAllRows();
 
     const data = (rows || [])
       .filter(r => r.task_name)
